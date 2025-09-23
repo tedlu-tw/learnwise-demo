@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: math_learning_api
+    restart: unless-stopped
+    environment:
+      FLASK_ENV: production
+      CORS_ORIGINS: http://localhost,http://localhost:80,http://127.0.0.1
+      MONGODB_URI: mongodb+srv://admin:fmSibp7NjHTucu5N@cluster0.7bl8fjo.mongodb.net/?retryWrites=true&w=majority&tls=true&appName=Cluster0
+      JWT_SECRET_KEY: 9Rqb546Ii-CMbjFpLB4M63Rht2PRQtAKCdfX81ShSus
+      ENCRYPTION_KEY: your-encryption-key
+    ports:
+      - "5050:5000"
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:5050
+    container_name: math_learning_web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:5050
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

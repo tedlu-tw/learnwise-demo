@@ -1,0 +1,12 @@
+flask
+flask-cors
+flask-jwt-extended
+flask-limiter
+pymongo
+python-dotenv
+fsrs
+marshmallow
+bcrypt
+cryptography
+gunicorn
+redis

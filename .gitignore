@@ -1,0 +1,48 @@
+# macOS
+.DS_Store
+
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+*.env
+.env
+venv/
+app.log
+
+# Node/Vue
+node_modules/
+.vite/
+dist/
+*.log
+
+# Docker
+*.pid
+
+# VSCode/IDE
+.vscode/
+.idea/
+*.swp
+
+# Frontend build
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+
+# Backend
+backend/venv/
+backend/__pycache__/
+backend/app.log
+backend/.env
+
+# Misc
+package-lock.json
+
+# Test output
+coverage/
+*.cover
+*.py,cover
+
+# Ignore empty folders
+**/.empty

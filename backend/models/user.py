@@ -1,0 +1,94 @@
+from utils.database import get_db
+from bson import ObjectId
+import datetime
+from utils.security import PasswordManager
+
+class User:
+    def __init__(self, id=None, username=None, email=None, password_hash=None, role='user', last_login=None, selected_skills=None, total_questions_answered=0, seen_question_ids=None, correct_answers=0):
+        self.id = id
+        self.username = username
+        self.email = email
+        self.password_hash = password_hash
+        self.role = role
+        self.last_login = last_login
+        self.selected_skills = selected_skills or []
+        self.total_questions_answered = total_questions_answered
+        self.seen_question_ids = seen_question_ids or []
+        self.correct_answers = correct_answers or 0
+
+    @classmethod
+    def find_by_email(cls, email):
+        db = get_db()
+        data = db.users.find_one({'email': email})
+        if data:
+            return cls._from_dict(data)
+        return None
+
+    @classmethod
+    def find_by_username(cls, username):
+        db = get_db()
+        data = db.users.find_one({'username': username})
+        if data:
+            return cls._from_dict(data)
+        return None
+
+    @classmethod
+    def get_by_id(cls, user_id):
+        db = get_db()
+        data = db.users.find_one({'_id': ObjectId(user_id)})
+        if data:
+            return cls._from_dict(data)
+        return None
+
+    @classmethod
+    def create_user(cls, username, email, password):
+        db = get_db()
+        password_hash = PasswordManager.hash_password(password)
+        user = {
+            'username': username,
+            'email': email,
+            'password_hash': password_hash,
+            'role': 'user',
+            'created_at': datetime.datetime.utcnow(),
+            'selected_skills': [],
+            'total_questions_answered': 0
+        }
+        result = db.users.insert_one(user)
+        user['_id'] = result.inserted_id
+        return cls._from_dict(user)
+
+    def check_password(self, password):
+        return PasswordManager.verify_password(password, self.password_hash)
+
+    def update_last_login(self):
+        db = get_db()
+        self.last_login = datetime.datetime.utcnow()
+        db.users.update_one({'_id': ObjectId(self.id)}, {'$set': {'last_login': self.last_login}})
+
+    @classmethod
+    def create_test_user(cls):
+        return cls.create_user(f"test_{ObjectId()}", f"test_{ObjectId()}@example.com", "testpass")
+
+    @classmethod
+    def delete_test_data(cls):
+        db = get_db()
+        db.users.delete_many({'username': {'$regex': 'test_'}})
+
+    @staticmethod
+    def _from_dict(data):
+        return User(
+            id=str(data['_id']),
+            username=data.get('username'),
+            email=data.get('email'),
+            password_hash=data.get('password_hash'),
+            role=data.get('role', 'user'),
+            last_login=data.get('last_login'),
+            selected_skills=data.get('selected_skills', []),
+            total_questions_answered=data.get('total_questions_answered', 0),
+            seen_question_ids=data.get('seen_question_ids', []),
+            correct_answers=data.get('correct_answers', 0)
+        )
+
+    @staticmethod
+    def get_db():
+        return get_db()
