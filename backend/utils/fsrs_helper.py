@@ -2,6 +2,8 @@ from fsrs import Scheduler, Card, Rating
 from datetime import datetime, timezone
 from models.fsrs_card import FSRSCard
 from typing import Optional
+from bson.objectid import ObjectId
+from utils.database import get_db
 
 class FSRSHelper:
     def __init__(self, user_parameters: Optional[dict] = None):
@@ -9,16 +11,38 @@ class FSRSHelper:
         self.scheduler = Scheduler(**user_parameters) if user_parameters else Scheduler()
 
     @staticmethod
-    def initialize_card_for_question(user_id: str, question_id: str) -> FSRSCard:
-        """Create and save a new FSRSCard for a user/question."""
-        card = FSRSCard(user_id=user_id, question_id=question_id)
-        card.save()
+    def ensure_card(user_id: str, question_id: str) -> FSRSCard:
+        """Ensure an FSRSCard exists for a user/question, create if missing."""
+        card = FSRSCard.get_by_user_and_question(user_id, question_id)
+        if not card:
+            card = FSRSCard(user_id=user_id, question_id=question_id)
+            card.save()
         return card
 
     @staticmethod
-    def get_due_cards(user_id: str, limit: int = 20):
-        """Get due FSRS cards for a user."""
-        return FSRSCard.get_due_cards(user_id, limit)
+    def update_card(user_id: str, question_id: str, is_correct: bool):
+        """Update FSRS card state based on answer correctness."""
+        card = FSRSHelper.ensure_card(user_id, question_id)
+        # For now, map correct/incorrect to FSRS rating (3=Good, 1=Again)
+        rating = 3 if is_correct else 1
+        helper = FSRSHelper()
+        helper.review_card(card, rating)
+        return card
+
+    @staticmethod
+    def get_due_cards(user_id: str, skills=None, limit: int = 20):
+        """Get due FSRS cards for a user, optionally filtered by skills."""
+        cards = FSRSCard.get_due_cards(user_id, limit=limit)
+        if skills:
+            db = get_db()
+            skill_set = set([s.lower() for s in skills])
+            filtered = []
+            for card in cards:
+                q = db.questions.find_one({'_id': ObjectId(card.question_id)})
+                if q and q.get('skill_category', '').lower() in skill_set:
+                    filtered.append({'question_id': card.question_id})
+            return filtered
+        return [{'question_id': card.question_id} for card in cards]
 
     def review_card(self, card: FSRSCard, rating_value: int, now: Optional[datetime] = None):
         """Review a card using the FSRS scheduler and update the DB card."""

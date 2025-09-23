@@ -3,6 +3,8 @@
     <div v-if="question">
       <div class="mb-6">
         <h2 class="text-2xl font-bold text-gray-800">{{ question.text }}</h2>
+        <span v-if="question.is_review" class="ml-2 px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-800">Review</span>
+        <span v-else class="ml-2 px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">New</span>
       </div>
       <div class="space-y-3">
         <div v-for="(option, index) in question.options" :key="index">

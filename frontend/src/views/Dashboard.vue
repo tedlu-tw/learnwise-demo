@@ -5,6 +5,7 @@
       <div>Total Questions Answered: {{ progress.total_questions }}</div>
       <div>Accuracy Rate: {{ progress.accuracy_rate }}%</div>
       <div>Study Streak: {{ progress.study_streak }}</div>
+      <div>Review Due: {{ dueCount }}</div>
       <div v-for="(skill, name) in progress.skills_progress" :key="name">
         <strong>{{ name }}</strong>: {{ skill.answered }}
       </div>
@@ -14,6 +15,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useLessonStore } from '@/stores/lesson'
+import { lessonService } from '@/services/lesson.service'
 const lesson = useLessonStore()
 const progress = ref({
   total_questions: 0,
@@ -21,8 +23,11 @@ const progress = ref({
   study_streak: 0,
   skills_progress: {}
 })
+const dueCount = ref(0)
 onMounted(async () => {
   await lesson.getProgressSummary()
   progress.value = lesson.progress
+  const due = await lessonService.getDueCount()
+  dueCount.value = due.due_count
 })
 </script>

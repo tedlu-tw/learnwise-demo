@@ -9,6 +9,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from marshmallow import Schema, fields, validate, ValidationError
 from bson import ObjectId
+from datetime import datetime
 
 lessons_bp = Blueprint('lessons', __name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -45,9 +46,7 @@ def start_lesson():
         from utils.database import get_db
         db = get_db()
     import uuid
-    from datetime import datetime
     session_id = str(uuid.uuid4())
-    # Get user's seen questions
     user = db.users.find_one({'_id': ObjectId(user_id)})
     seen_ids = user.get('seen_question_ids', [])
     db.lesson_sessions.insert_one({
@@ -57,16 +56,24 @@ def start_lesson():
         'question_ids': [],
         'created_at': datetime.utcnow()
     })
-    # Find first question not in question_ids or seen_question_ids
-    print(f"[DEBUG] skill_ids received: {skill_ids}")
-    question_doc = db.questions.aggregate([
-        {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': seen_ids}}},
-        {'$sample': {'size': 10}}
-    ])
-    question_doc = list(question_doc)
+    # --- FSRS integration: get due cards first ---
+    due_cards = FSRSHelper.get_due_cards(user_id, skills=skill_ids, limit=10)
+    question_doc = []
+    is_review = False
+    if due_cards:
+        # Get question docs for due cards
+        due_ids = [ObjectId(card['question_id']) for card in due_cards]
+        question_doc = list(db.questions.find({'_id': {'$in': due_ids}}))
+        is_review = True
+    if not question_doc:
+        # Fallback to new/unseen questions
+        question_doc = list(db.questions.aggregate([
+            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': seen_ids}}},
+            {'$sample': {'size': 10}}
+        ]))
+        is_review = False
     if not question_doc:
         available_skills = list(db.questions.distinct('skill_category'))
-        print(f"[DEBUG] No questions found. Available skill_category values: {available_skills}")
         return jsonify({'error': 'No questions found for selected skills', 'available_skills': available_skills, 'requested_skills': skill_ids}), 404
     import random
     first_question = random.choice(question_doc)
@@ -74,18 +81,20 @@ def start_lesson():
         {'session_id': session_id},
         {'$push': {'question_ids': first_question['_id']}}
     )
-    # Add to user's seen_question_ids (do NOT increment total_questions_answered here)
     db.users.update_one(
         {'_id': ObjectId(user_id)},
         {'$addToSet': {'seen_question_ids': first_question['_id']}}
     )
+    # Ensure FSRS card exists for this question/user
+    FSRSHelper.ensure_card(user_id, str(first_question['_id']))
     question = {
         'id': str(first_question['_id']),
         'text': first_question.get('question_text') or first_question.get('text'),
         'options': first_question.get('options', []),
         'skill_category': first_question.get('skill_category'),
         'difficulty': first_question.get('difficulty_level', first_question.get('difficulty', None)),
-        'explanation': first_question.get('explanation', None)
+        'explanation': first_question.get('explanation', None),
+        'is_review': is_review
     }
     return jsonify({'session_id': session_id, 'question': question})
 
@@ -105,13 +114,21 @@ def next_question():
     used_ids = session['question_ids']
     user = db.users.find_one({'_id': ObjectId(session['user_id'])})
     seen_ids = user.get('seen_question_ids', [])
-    # Exclude both session and user seen questions
     exclude_ids = list(set(used_ids) | set(seen_ids))
-    question_doc = db.questions.aggregate([
-        {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': exclude_ids}}},
-        {'$sample': {'size': 10}}
-    ])
-    question_doc = list(question_doc)
+    # --- FSRS integration: get due cards not already used in session ---
+    due_cards = FSRSHelper.get_due_cards(session['user_id'], skills=skill_ids, limit=10)
+    due_ids = [ObjectId(card['question_id']) for card in due_cards if ObjectId(card['question_id']) not in exclude_ids]
+    question_doc = []
+    is_review = False
+    if due_ids:
+        question_doc = list(db.questions.find({'_id': {'$in': due_ids}}))
+        is_review = True
+    if not question_doc:
+        question_doc = list(db.questions.aggregate([
+            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': exclude_ids}}},
+            {'$sample': {'size': 10}}
+        ]))
+        is_review = False
     if not question_doc:
         return jsonify({'message': 'Session complete'}), 200
     import random
@@ -124,13 +141,16 @@ def next_question():
         {'_id': ObjectId(session['user_id'])},
         {'$addToSet': {'seen_question_ids': next_q['_id']}}
     )
+    # Ensure FSRS card exists for this question/user
+    FSRSHelper.ensure_card(session['user_id'], str(next_q['_id']))
     question = {
         'id': str(next_q['_id']),
         'text': next_q.get('question_text') or next_q.get('text'),
         'options': next_q.get('options', []),
         'skill_category': next_q.get('skill_category'),
         'difficulty': next_q.get('difficulty_level', next_q.get('difficulty', None)),
-        'explanation': next_q.get('explanation', None)
+        'explanation': next_q.get('explanation', None),
+        'is_review': is_review
     }
     return jsonify({'question': question})
 
@@ -189,6 +209,7 @@ def submit_answer():
     session_id = data.get('session_id')
     question_id = data.get('question_id')
     answer_index = data.get('answer_index')
+    rating = data.get('rating')  # Accept FSRS rating from frontend
     db = Question.get_db() if hasattr(Question, 'get_db') else None
     if db is None:
         from utils.database import get_db
@@ -202,10 +223,58 @@ def submit_answer():
         return jsonify({'error': 'Question not found'}), 404
     is_correct = False
     correct_index = question.get('correct_answer')
-    if correct_index is not None and int(answer_index) == int(correct_index):
+    options = question.get('options', [])
+    # Ensure both indices are integers and handle possible type issues
+    try:
+        answer_index_int = int(answer_index)
+        correct_index_int = int(correct_index)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid answer index or correct answer'}), 400
+    # Validate correct_index is within options
+    if not options or correct_index_int < 0 or correct_index_int >= len(options):
+        debug_info = {
+            'question_id': question_id,
+            'options': options,
+            'correct_index': correct_index_int,
+            'question_text': question.get('question_text')
+        }
+        return jsonify({'error': 'Correct answer index out of range', 'debug': debug_info}), 400
+    if correct_index is not None and answer_index_int == correct_index_int:
         is_correct = True
         db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'correct_answers': 1}})
-    # Always increment total_questions_answered (already done in /next, but for robustness)
     db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'total_questions_answered': 1}})
-    # Optionally, store answer history (not implemented here)
-    return jsonify({'correct': is_correct, 'correct_index': correct_index, 'explanation': question.get('explanation', '')})
+    # --- FSRS integration: update card state ---
+    from fsrs import Rating
+    # Accept nuanced FSRS rating from frontend
+    if rating is not None:
+        if isinstance(rating, int):
+            fsrs_rating = Rating(rating)
+        elif isinstance(rating, str):
+            rating_map = {
+                'Again': Rating.Again,
+                'Hard': Rating.Hard,
+                'Good': Rating.Good,
+                'Easy': Rating.Easy
+            }
+            fsrs_rating = rating_map.get(rating, Rating.Good)
+        else:
+            fsrs_rating = Rating.Good
+    else:
+        fsrs_rating = Rating.Good if is_correct else Rating.Again
+    FSRSHelper.update_card(user_id, question_id, fsrs_rating)
+    # Optionally, store answer history in lesson_reports
+    db.lesson_reports.insert_one({
+        'user_id': ObjectId(user_id),
+        'session_id': session_id,  # Store as string, not ObjectId
+        'question_id': ObjectId(question_id),
+        'response': answer_index_int,
+        'is_correct': is_correct,
+        'rating': fsrs_rating.value,
+        'timestamp': datetime.utcnow(),
+        'options': options
+    })
+    # Return correct explanation if correct, else fallback to question explanation
+    explanation = question.get('explanation', '')
+    if not is_correct:
+        explanation = f"Correct answer: {options[correct_index_int]}. {explanation}"
+    return jsonify({'correct': is_correct, 'correct_index': correct_index_int, 'explanation': explanation, 'options': options})

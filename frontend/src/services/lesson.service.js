@@ -16,5 +16,9 @@ class LessonService {
     const res = await api.get('/lessons/progress-summary')
     return res.data
   }
+  async getDueCount() {
+    const res = await api.get('/lessons/due-count')
+    return res.data
+  }
 }
 export const lessonService = new LessonService()

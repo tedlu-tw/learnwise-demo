@@ -10,3 +10,4 @@ bcrypt
 cryptography
 gunicorn
 redis
+python-dotenv
