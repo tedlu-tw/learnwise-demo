@@ -1,4 +1,4 @@
-# Math Learning System with Spaced Repetition
+# LearnWise: Enhancing math learning with memory science and generative AI
 
 ## Overview
 A full-stack math learning platform using Flask (Python), MongoDB, Vue 3, Pinia, Tailwind CSS, and FSRS spaced repetition algorithm.
