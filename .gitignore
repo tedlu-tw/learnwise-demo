@@ -36,9 +36,6 @@ backend/__pycache__/
 backend/app.log
 backend/.env
 
-# Misc
-package-lock.json
-
 # Test output
 coverage/
 *.cover
