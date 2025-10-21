@@ -19,4 +19,19 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 )
 
+// Add a response interceptor to handle token expiration
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Only auto-redirect on 401 for non-auth initialization calls
+    if (error.response?.status === 401 && 
+        !error.config?.url?.includes('/auth/me') && 
+        window.location.pathname !== '/login') {
+      // Token expired during normal API calls, redirect to login
+      window.location.href = '/login'
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default api

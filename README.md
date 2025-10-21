@@ -21,7 +21,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Set environment variables in .env
 # JWT_SECRET_KEY: `import secrets; print(secrets.token_urlsafe(32))`
-# ENCRYPTION_KEY: `from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())`
+# ENCRYPTION_KEY: `frome cryptography.fernet import Fernet; print(Fernet.generate_key().decod())`
 python3 ../scripts/init_db.py
 # If SSL error occured: 
 # `/Applications/Python\ 3.x/Install\ Certificates.command`

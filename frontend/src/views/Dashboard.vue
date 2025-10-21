@@ -1,33 +1,35 @@
 <template>
-  <div class="max-w-2xl mx-auto mt-10">
-    <h2 class="text-2xl font-bold mb-4">Progress Dashboard</h2>
-    <div class="bg-white p-4 rounded shadow">
-      <div>Total Questions Answered: {{ progress.total_questions }}</div>
-      <div>Accuracy Rate: {{ progress.accuracy_rate }}%</div>
-      <div>Study Streak: {{ progress.study_streak }}</div>
-      <div>Review Due: {{ dueCount }}</div>
-      <div v-for="(skill, name) in progress.skills_progress" :key="name">
-        <strong>{{ name }}</strong>: {{ skill.answered }}
-      </div>
+    <Nav />
+    <div class="w-full h-screen flex flex-col justify-center items-center mx-auto mt-10">
+        <h2 class="text-2xl font-bold mb-4">Progress Dashboard</h2>
+        <div class="bg-white p-4 rounded shadow">
+            <div>Total Questions Answered: {{ progress.total_questions }}</div>
+            <div>Accuracy Rate: {{ progress.accuracy_rate }}%</div>
+            <div>Study Streak: {{ progress.study_streak }}</div>
+            <div>Review Due: {{ dueCount }}</div>
+            <div v-for="(skill, name) in progress.skills_progress" :key="name">
+                <strong>{{ name }}</strong>: {{ skill.answered }}
+            </div>
+        </div>
     </div>
-  </div>
 </template>
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useLessonStore } from '@/stores/lesson'
 import { lessonService } from '@/services/lesson.service'
+import Nav from '@/components/common/Nav.vue'
 const lesson = useLessonStore()
 const progress = ref({
-  total_questions: 0,
-  accuracy_rate: 0,
-  study_streak: 0,
-  skills_progress: {}
+    total_questions: 0,
+    accuracy_rate: 0,
+    study_streak: 0,
+    skills_progress: {}
 })
 const dueCount = ref(0)
 onMounted(async () => {
-  await lesson.getProgressSummary()
-  progress.value = lesson.progress
-  const due = await lessonService.getDueCount()
-  dueCount.value = due.due_count
+    await lesson.getProgressSummary()
+    progress.value = lesson.progress
+    const due = await lessonService.getDueCount()
+    dueCount.value = due.due_count
 })
 </script>

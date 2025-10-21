@@ -53,6 +53,23 @@ def login():
     }
     return jsonify({'access_token': access_token, 'user': user_data})
 
+@auth_bp.route('/me', methods=['GET'])
+@jwt_required()
+def get_current_user():
+    user_id = get_jwt_identity()
+    user = User.get_by_id(user_id)
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    user_data = {
+        'id': str(user.id),
+        'username': user.username,
+        'email': user.email,
+        'selected_skills': getattr(user, 'selected_skills', []),
+        'role': getattr(user, 'role', 'user')
+    }
+    return jsonify(user_data)
+
 @auth_bp.route('/skills', methods=['PATCH'])
 @jwt_required()
 def update_skills():
