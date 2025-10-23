@@ -1,17 +1,21 @@
 <template>
-    <Nav />
+    <Nav :showLogin="true" activeItem="auth" />
     <div class="w-full h-screen flex flex-col justify-center items-center">
         <div class="w-full flex flex-col justify-center items-center">
             <!-- title & description -->
             <span class="text-2xl font-bold">登入你的帳號</span>
             <span class="text-lg font-normal mt-2">輸入你的電子郵件和密碼</span>
-            <!-- input form-->
-            <input v-model="email" type="text"
-                class="w-96 bg-white border border-[#E0E0E0] rounded-lg px-4 py-2 text-left mt-5" placeholder="Email" />
-            <input v-model="password" type="password" autocomplete="current-password"
-                class="w-96 bg-white border border-[#E0E0E0] rounded-lg px-4 py-2 text-left mt-4"
-                placeholder="Password" />
-            <button class="w-96 bg-black text-white rounded-lg px-4 py-2 mt-4" v-on:click="login">登入</button>
+            <!-- input form -->
+            <form @submit.prevent="login" class="w-full flex flex-col items-center">
+                <input v-model="email" type="text"
+                    class="w-96 bg-white border border-[#E0E0E0] rounded-lg px-4 py-2 text-left mt-5" placeholder="Email" required/>
+                <input v-model="password" type="password" autocomplete="current-password"
+                    class="w-96 bg-white border border-[#E0E0E0] rounded-lg px-4 py-2 text-left mt-4"
+                    placeholder="Password" required/>
+                <!-- error message shown when login fails -->
+                <p v-if="error" class="text-red-600 mt-2">{{ error || '帳號或密碼錯誤' }}</p>
+                <button type="submit" class="w-96 bg-black text-white rounded-lg px-4 py-2 mt-4">登入</button>
+            </form>
             <!-- register notice -->
             <span class="text-sm text-[#828282] mt-5">還沒有帳號嗎？<a href="#" class="text-black">註冊</a></span>
         </div>

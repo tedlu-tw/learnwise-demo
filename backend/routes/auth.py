@@ -36,11 +36,11 @@ def register():
 @limiter.limit("5 per minute")
 def login():
     data = request.get_json()
-    if not data.get('email') or not data.get('password'):
-        return jsonify({'error': 'Email and password required'}), 400
+    # if not data.get('email') or not data.get('password'):
+    #     return jsonify({'error': 'Email and password required'}), 400
     user = User.find_by_email(data['email'])
     if not user or not user.check_password(data['password']):
-        return jsonify({'error': 'Invalid credentials'}), 401
+        return jsonify({'error': '電子郵件信箱或密碼有誤'}), 401
     user.update_last_login()
     access_token = create_access_token(identity=str(user.id))
     # Return user info including selected_skills

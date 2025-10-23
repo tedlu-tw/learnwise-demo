@@ -1,5 +1,5 @@
 <template>
-    <Nav />
+    <Nav :showLogin="false" activeItem="session" />
     <div class="max-w-lg mx-auto mt-10 p-6 bg-white rounded shadow">
         <h2 class="text-2xl font-bold mb-4">Select Skills</h2>
         <div class="mb-4">

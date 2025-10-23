@@ -4,6 +4,7 @@ from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pymongo import MongoClient
+from datetime import timedelta
 import os
 
 # Blueprints
@@ -18,6 +19,7 @@ load_dotenv(dotenv_path='.env')
 def create_app():
     app = Flask(__name__)
     app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-key')
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
     app.config['MONGODB_URI'] = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/math_learning')
     app.config['CORS_ORIGINS'] = os.environ.get('CORS_ORIGINS', 'http://localhost:5173')
 

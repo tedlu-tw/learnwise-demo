@@ -1,5 +1,5 @@
 <template>
-    <Nav />
+    <Nav :showLogin="false" activeItem="session" />
     <div class="w-full h-screen flex justify-center items-center">
         <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
             <div v-if="question">
