@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import { useAuthStore } from './stores/auth'
 import './index.css'
+import 'katex/dist/katex.min.css'
 
 async function initApp() {
   const app = createApp(App)

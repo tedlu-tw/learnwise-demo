@@ -4,12 +4,14 @@ import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import SkillSelection from '@/views/SkillSelection.vue'
 import LearningSession from '@/views/LearningSession.vue'
+import KatexTest from '@/views/KatexTest.vue'
 
 const routes = [
     { path: '/login', name: 'Login', component: Login, name: 'login' },
     { path: '/skills', name: 'SkillSelection', component: SkillSelection, meta: { requiresAuth: true } },
     { path: '/session', name: 'LearningSession', component: LearningSession, meta: { requiresAuth: true } },
     { path: '/dashboard', name: 'Dashboard', component: Dashboard, meta: { requiresAuth: true } },
+    { path: '/katex-test', name: 'KatexTest', component: KatexTest },
     { path: '/', redirect: '/login' }
 ]
 

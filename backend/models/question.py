@@ -33,7 +33,7 @@ class Question:
     @classmethod
     def delete_test_data(cls):
         db = get_db()
-        db.questions.delete_many({'text': {'$regex': 'What is 2 \+ 2'}})
+        db.questions.delete_many({'text': {'$regex': r'What is 2 \+ 2'}})
 
     @staticmethod
     def _from_dict(data):

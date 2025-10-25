@@ -111,36 +111,47 @@ def next_question():
     if not session:
         return jsonify({'error': 'Session not found'}), 404
     skill_ids = [s.lower() for s in session['selected_skills']]
-    used_ids = session['question_ids']
-    user = db.users.find_one({'_id': ObjectId(session['user_id'])})
-    seen_ids = user.get('seen_question_ids', [])
-    exclude_ids = list(set(used_ids) | set(seen_ids))
-    # --- FSRS integration: get due cards not already used in session ---
+    used_ids = session.get('question_ids', [])
+    
+    # Check if we've reached a reasonable limit of questions per session
+    if len(used_ids) >= 10:  # Limit to 10 questions per session
+        return jsonify({'message': 'Session complete'}), 200
+    
+    # First try to get review questions (FSRS due cards)
     due_cards = FSRSHelper.get_due_cards(session['user_id'], skills=skill_ids, limit=10)
-    due_ids = [ObjectId(card['question_id']) for card in due_cards if ObjectId(card['question_id']) not in exclude_ids]
+    due_ids = [ObjectId(card['question_id']) for card in due_cards if ObjectId(card['question_id']) not in used_ids]
+    
     question_doc = []
     is_review = False
     if due_ids:
         question_doc = list(db.questions.find({'_id': {'$in': due_ids}}))
         is_review = True
+    
+    # If no review questions, get new questions (only exclude those used in THIS session)
     if not question_doc:
         question_doc = list(db.questions.aggregate([
-            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': exclude_ids}}},
-            {'$sample': {'size': 10}}
+            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': used_ids}}},
+            {'$sample': {'size': 5}}
         ]))
         is_review = False
+    
     if not question_doc:
         return jsonify({'message': 'Session complete'}), 200
+    
     import random
     next_q = random.choice(question_doc)
     db.lesson_sessions.update_one(
         {'session_id': session_id},
         {'$push': {'question_ids': next_q['_id']}}
     )
-    db.users.update_one(
-        {'_id': ObjectId(session['user_id'])},
-        {'$addToSet': {'seen_question_ids': next_q['_id']}}
-    )
+    
+    # Only update seen_question_ids if it's a new question (not review)
+    if not is_review:
+        db.users.update_one(
+            {'_id': ObjectId(session['user_id'])},
+            {'$addToSet': {'seen_question_ids': next_q['_id']}}
+        )
+    
     # Ensure FSRS card exists for this question/user
     FSRSHelper.ensure_card(session['user_id'], str(next_q['_id']))
     question = {

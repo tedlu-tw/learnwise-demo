@@ -4,7 +4,9 @@
         <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
             <div v-if="question">
                 <div class="mb-6">
-                    <h2 class="text-2xl font-bold text-gray-800">{{ question.text }}</h2>
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        <MathText :text="question.text" />
+                    </h2>
                     <span v-if="question.is_review"
                         class="px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-800">Review</span>
                     <span v-else class="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">New</span>
@@ -14,15 +16,21 @@
                         <label class="flex items-center space-x-2">
                             <input type="radio" :value="index" v-model="selectedAnswer" name="answer"
                                 :disabled="answerSubmitted" />
-                            <span>{{ option }}</span>
+                            <span>
+                                <MathText :text="option" />
+                            </span>
                         </label>
                     </div>
                 </div>
                 <div v-if="answerSubmitted && feedback">
                     <div v-if="feedback.correct" class="text-green-600 mt-4">Correct!</div>
-                    <div v-else class="text-red-600 mt-4">Incorrect. Correct answer: {{
-                        question.options[feedback.correct_index]
-                        }}<br />Explanation: {{ feedback.explanation }}</div>
+                    <div v-else class="text-red-600 mt-4">
+                        Incorrect. Correct answer: 
+                        <MathText :text="question.options[feedback.correct_index]" />
+                        <br />
+                        Explanation: 
+                        <MathText :text="feedback.explanation" />
+                    </div>
                     <button class="mt-4 btn" @click="nextQuestion">Next</button>
                 </div>
                 <div v-else>
@@ -49,6 +57,7 @@ import { useLessonStore } from '@/stores/lesson'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { lessonService } from '@/services/lesson.service'
+import MathText from '@/components/common/MathText.vue'
 import Nav from '@/components/common/Nav.vue'
 const lesson = useLessonStore()
 const auth = useAuthStore()
@@ -105,24 +114,40 @@ async function submitAnswer() {
 async function nextQuestion() {
     answerSubmitted.value = false
     feedback.value = null
-    currentQuestion.value++
     const sessionId = lesson.currentSession?.session_id
-    if (currentQuestion.value > totalQuestions.value || !sessionId) {
+    if (!sessionId) {
         router.push('/dashboard')
         return
     }
-    // Get next question from backend
+    // Get next question from backend first
     const nextRes = await lessonService.getNextQuestion(sessionId)
     if (nextRes && nextRes.question) {
         question.value = nextRes.question
+        currentQuestion.value++ // Only increment after successful fetch
         // selectedAnswer will be reset by watcher
     } else {
+        // No more questions available or session complete
         router.push('/dashboard')
     }
 }
 </script>
 <style scoped>
 .btn {
-    @apply bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600;
+    background-color: #3b82f6;
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn:hover {
+    background-color: #2563eb;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 </style>
