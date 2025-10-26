@@ -24,4 +24,4 @@ def log_errors(f):
     return decorated_function
 
 def get_db():
-    return current_app.mongo['math_learning']
+    return current_app.mongo['learnwise-demo']

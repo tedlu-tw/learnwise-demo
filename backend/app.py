@@ -12,7 +12,7 @@ from routes.auth import auth_bp
 from routes.lessons import lessons_bp
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path='.env')
+load_dotenv(dotenv_path='../.env')
 
 # App factory
 
@@ -20,7 +20,7 @@ def create_app():
     app = Flask(__name__)
     app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'dev-key')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
-    app.config['MONGODB_URI'] = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/math_learning')
+    app.config['MONGODB_URI'] = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/innoserve-dev')
     app.config['CORS_ORIGINS'] = os.environ.get('CORS_ORIGINS', 'http://localhost:5173')
 
     # Extensions

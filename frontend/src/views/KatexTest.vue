@@ -30,7 +30,7 @@
         <h2 class="text-xl font-semibold mb-3">Question Preview</h2>
         <div class="border-l-4 border-blue-500 pl-4">
           <h3 class="font-medium mb-2">Sample Math Question:</h3>
-          <MathText text="What is the derivative of $f(x) = x^3 + 2x^2 - 5x + 1$?" />
+          <MathText text="What is the derivative of $f(x) = x^3 + 2x^2 - 5x + 1$? <br>$f(x) = x^3 + 2x^2 - 5x + 1$?" />
           <div class="mt-3 space-y-2">
             <div class="flex items-center space-x-2">
               <input type="radio" name="test-question" value="0" />

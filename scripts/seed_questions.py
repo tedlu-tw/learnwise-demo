@@ -2,11 +2,11 @@ from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path='.env')
+load_dotenv(dotenv_path='../.env')
 
-MONGODB_URI = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/math_learning')
+MONGODB_URI = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/innoserve-dev')
 client = MongoClient(MONGODB_URI)
-db = client['math_learning']
+db = client['learnwise-demo']
 
 sample_questions = [
     {

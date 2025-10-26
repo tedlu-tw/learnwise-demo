@@ -1,7 +1,7 @@
 // MongoDB Index Creation Script for Math Learning System
 // Run this in the MongoDB shell or with `mongosh scripts/index_setup.js`
 
-db = db.getSiblingDB('math_learning')
+db = db.getSiblingDB('learnwise-demo')
 
 // Users collection
 print('Creating indexes for users...')

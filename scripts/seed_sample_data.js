@@ -1,5 +1,5 @@
 // Sample data seed script for MongoDB (run with mongosh)
-db = db.getSiblingDB('math_learning')
+db = db.getSiblingDB('learnwise-demo')
 
 // // Sample users
 // db.users.insertMany([
