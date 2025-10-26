@@ -2,7 +2,17 @@
     <Nav :showLogin="false" activeItem="session" />
     <div class="w-full h-screen flex justify-center items-center">
         <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-            <div v-if="question">
+            <div v-if="error" class="text-red-600 mb-4">
+                {{ error }}
+                <button @click="retrySession" class="ml-2 text-blue-600 underline">Retry</button>
+            </div>
+            
+            <div v-if="loading" class="flex justify-center">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                <span class="ml-2">Loading...</span>
+            </div>
+            
+            <div v-else-if="question">
                 <div class="mb-6">
                     <h2 class="text-2xl font-bold text-gray-800">
                         <MathText :text="question.text" />
@@ -45,7 +55,7 @@
                     </div>
                 </div>
             </div>
-            <div v-else>
+            <div v-else-if="!error">
                 <p class="text-gray-500">Loading question...</p>
             </div>
         </div>
@@ -68,27 +78,43 @@ const totalQuestions = ref(10)
 const feedback = ref(null)
 const answerSubmitted = ref(false)
 const question = ref(null)
+const loading = ref(false)
+const error = ref(null)
 
 onMounted(async () => {
     console.log('LearningSession mounted')
     console.log('Auth state before initialization:', { user: auth.user, token: auth.token })
 
-    // Initialize auth if not already initialized
-    if (!auth.user && localStorage.getItem('token')) {
-        await auth.initializeAuth()
-        console.log('Auth state after initialization:', { user: auth.user, token: auth.token })
-    }
+    try {
+        loading.value = true
 
-    // Only start lesson if not already started
-    if (!lesson.currentSession || !lesson.currentSession.question) {
-        if (!auth.user?.selected_skills?.length) {
-            console.log('No skills found, redirecting to skills page')
-            router.push('/skills')
-            return
+        // Initialize auth if not already initialized
+        if (!auth.user && localStorage.getItem('token')) {
+            await auth.initializeAuth()
+            console.log('Auth state after initialization:', { user: auth.user, token: auth.token })
         }
-        await lesson.startLesson('initial', auth.user.selected_skills)
+
+        // Only start lesson if not already started
+        if (!lesson.currentSession || !lesson.currentSession.question) {
+            if (!auth.user?.selected_skills?.length) {
+                console.log('No skills found, redirecting to skills page')
+                router.push('/skills')
+                return
+            }
+            
+            await lesson.startLesson('initial', auth.user.selected_skills)
+            const nextQuestion = await lesson.fetchNextQuestion()
+            question.value = nextQuestion
+            console.log('Initial question loaded:', question.value)
+        } else {
+            question.value = lesson.currentSession.question
+        }
+    } catch (e) {
+        console.error('Error starting session:', e)
+        error.value = 'Failed to start learning session. Please try again.'
+    } finally {
+        loading.value = false
     }
-    question.value = lesson.currentSession?.question
 })
 
 watch(question, () => {
@@ -128,6 +154,21 @@ async function nextQuestion() {
     } else {
         // No more questions available or session complete
         router.push('/dashboard')
+    }
+}
+async function retrySession() {
+    error.value = null
+    try {
+        loading.value = true
+        await lesson.startLesson('initial', auth.user.selected_skills)
+        const nextQuestion = await lesson.fetchNextQuestion()
+        question.value = nextQuestion
+        console.log('Session restarted, question loaded:', question.value)
+    } catch (e) {
+        console.error('Error retrying session:', e)
+        error.value = 'Failed to restart learning session. Please try again.'
+    } finally {
+        loading.value = false
     }
 }
 </script>

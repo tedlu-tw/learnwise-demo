@@ -10,6 +10,7 @@ import os
 # Blueprints
 from routes.auth import auth_bp
 from routes.lessons import lessons_bp
+from routes.skills import skills_bp
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path='../.env')
@@ -35,9 +36,10 @@ def create_app():
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(lessons_bp, url_prefix='/api/lessons')
+    app.register_blueprint(skills_bp, url_prefix='/api/skills')
 
     return app
 
 if __name__ == '__main__':
     app = create_app()
-    app.run(host='0.0.0.0', port=5001)
+    app.run(host='0.0.0.0', port=5050)

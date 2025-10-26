@@ -9,7 +9,7 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     currentUser: (state) => state.user,
-    isLoggedIn: (state) => !!state.token
+    isLoggedIn: (state) => !!state.token && !!state.user
   },
   actions: {
     async login(credentials) {

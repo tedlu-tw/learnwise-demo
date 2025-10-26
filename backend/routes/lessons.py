@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from utils.fsrs_helper import FSRSHelper
 from models.user import User
@@ -10,7 +10,10 @@ from flask_limiter.util import get_remote_address
 from marshmallow import Schema, fields, validate, ValidationError
 from bson import ObjectId
 from datetime import datetime
+import logging
+import re
 
+logger = logging.getLogger(__name__)
 lessons_bp = Blueprint('lessons', __name__)
 limiter = Limiter(key_func=get_remote_address)
 
@@ -18,151 +21,190 @@ class LessonStartSchema(Schema):
     skill_ids = fields.List(fields.String(), required=True, validate=validate.Length(min=1, max=10))
     type = fields.String(required=True, validate=validate.OneOf(['initial', 'review', 'practice']))
 
-def validate_input(schema_class):
-    def decorator(f):
-        def decorated_function(*args, **kwargs):
-            schema = schema_class()
-            try:
-                data = schema.load(request.get_json())
-                request.validated_data = data
-                return f(*args, **kwargs)
-            except ValidationError as err:
-                return jsonify({'error': 'Validation failed', 'details': err.messages}), 400
-        return decorated_function
-    return decorator
-
 @lessons_bp.route('/start', methods=['POST'])
 @limiter.limit("10 per minute")
 @jwt_required()
 @log_errors
-@validate_input(LessonStartSchema)
 def start_lesson():
-    data = request.validated_data
-    user_id = get_jwt_identity()
-    skill_ids = [s.lower() for s in data['skill_ids']]
-    lesson_type = data['type']
-    db = Question.get_db() if hasattr(Question, 'get_db') else None
-    if db is None:
-        from utils.database import get_db
-        db = get_db()
-    import uuid
-    session_id = str(uuid.uuid4())
-    user = db.users.find_one({'_id': ObjectId(user_id)})
-    seen_ids = user.get('seen_question_ids', [])
-    db.lesson_sessions.insert_one({
-        'session_id': session_id,
-        'user_id': user_id,
-        'selected_skills': skill_ids,
-        'question_ids': [],
-        'created_at': datetime.utcnow()
-    })
-    # --- FSRS integration: get due cards first ---
-    due_cards = FSRSHelper.get_due_cards(user_id, skills=skill_ids, limit=10)
-    question_doc = []
-    is_review = False
-    if due_cards:
-        # Get question docs for due cards
-        due_ids = [ObjectId(card['question_id']) for card in due_cards]
-        question_doc = list(db.questions.find({'_id': {'$in': due_ids}}))
-        is_review = True
-    if not question_doc:
-        # Fallback to new/unseen questions
-        question_doc = list(db.questions.aggregate([
-            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': seen_ids}}},
-            {'$sample': {'size': 10}}
-        ]))
-        is_review = False
-    if not question_doc:
-        available_skills = list(db.questions.distinct('skill_category'))
-        return jsonify({'error': 'No questions found for selected skills', 'available_skills': available_skills, 'requested_skills': skill_ids}), 404
-    import random
-    first_question = random.choice(question_doc)
-    db.lesson_sessions.update_one(
-        {'session_id': session_id},
-        {'$push': {'question_ids': first_question['_id']}}
-    )
-    db.users.update_one(
-        {'_id': ObjectId(user_id)},
-        {'$addToSet': {'seen_question_ids': first_question['_id']}}
-    )
-    # Ensure FSRS card exists for this question/user
-    FSRSHelper.ensure_card(user_id, str(first_question['_id']))
-    question = {
-        'id': str(first_question['_id']),
-        'text': first_question.get('question_text') or first_question.get('text'),
-        'options': first_question.get('options', []),
-        'skill_category': first_question.get('skill_category'),
-        'difficulty': first_question.get('difficulty_level', first_question.get('difficulty', None)),
-        'explanation': first_question.get('explanation', None),
-        'is_review': is_review
-    }
-    return jsonify({'session_id': session_id, 'question': question})
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        # Validate input
+        schema = LessonStartSchema()
+        try:
+            validated_data = schema.load(data)
+        except ValidationError as err:
+            logger.error(f"Validation error in start_lesson: {err.messages}")
+            return jsonify({'error': 'Validation failed', 'details': err.messages}), 400
+
+        user_id = get_jwt_identity()
+        categories = [s.lower() for s in validated_data['skill_ids']]
+        lesson_type = validated_data['type']
+
+        logger.info(f"Starting lesson for user {user_id} with categories: {categories}")
+
+        db = Question.get_db() if hasattr(Question, 'get_db') else None
+        if db is None:
+            from utils.database import get_db
+            db = get_db()
+
+        # Verify user exists
+        user = db.users.find_one({'_id': ObjectId(user_id)})
+        if not user:
+            logger.error(f"User {user_id} not found")
+            return jsonify({'error': 'User not found'}), 404
+
+        # Log available categories first
+        available_cats = list(db.questions.distinct('category'))
+        logger.info(f"Available categories in DB: {available_cats}")
+        logger.info(f"Requested categories: {categories}")
+        
+        # Find questions for selected categories
+        pipeline = [
+            {'$match': {'category': {'$in': categories}}},
+            {'$project': {'_id': 1, 'category': 1, 'question_text': 1, 'text': 1, 'options': 1}}
+        ]
+        questions = list(db.questions.aggregate(pipeline))
+        logger.info(f"Found {len(questions)} questions matching categories: {categories}")
+        
+        if not questions:
+            # Try case-insensitive search
+            pipeline = [
+                {'$match': {'category': {'$regex': '|'.join(map(re.escape, categories)), '$options': 'i'}}},
+                {'$project': {'_id': 1, 'category': 1, 'question_text': 1, 'text': 1, 'options': 1}}
+            ]
+            questions = list(db.questions.aggregate(pipeline))
+            logger.info(f"Case-insensitive search found {len(questions)} questions")
+        
+        if not questions:
+            logger.error(f"No questions found for categories: {categories}")
+            return jsonify({'error': 'No questions found for selected categories'}), 404
+            
+        # Limit to 10 random questions
+        import random
+        if len(questions) > 10:
+            questions = random.sample(questions, 10)
+
+        # Create a new session
+        session_id = str(ObjectId())
+        session = {
+            'session_id': session_id,
+            'user_id': user_id,
+            'selected_categories': categories,
+            'type': lesson_type,
+            'available_questions': [str(q['_id']) for q in questions],
+            'used_questions': [],
+            'completed': False,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow()
+        }
+
+        db.lesson_sessions.insert_one(session)
+        logger.info(f"Created new lesson session {session_id} for user {user_id}")
+
+        return jsonify({
+            'session_id': session_id,
+            'total_questions': len(questions),
+            'categories': categories,
+            'type': lesson_type
+        })
+
+    except Exception as e:
+        logger.error(f"Error in start_lesson: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
 
 @lessons_bp.route('/next', methods=['POST'])
 @jwt_required()
 def next_question():
     data = request.get_json()
     session_id = data.get('session_id')
+    logger.info(f"Fetching next question for session: {session_id}")
+    
     db = Question.get_db() if hasattr(Question, 'get_db') else None
     if db is None:
         from utils.database import get_db
         db = get_db()
+    
     session = db.lesson_sessions.find_one({'session_id': session_id})
     if not session:
+        logger.error(f"Session not found: {session_id}")
         return jsonify({'error': 'Session not found'}), 404
-    skill_ids = [s.lower() for s in session['selected_skills']]
-    used_ids = session.get('question_ids', [])
     
-    # Check if we've reached a reasonable limit of questions per session
-    if len(used_ids) >= 10:  # Limit to 10 questions per session
+    # Get session state
+    skill_ids = [s.lower() for s in session['selected_categories']]
+    available_questions = session.get('available_questions', [])
+    used_questions = session.get('used_questions', [])
+    
+    logger.info(f"Session found. Categories: {skill_ids}, Available: {len(available_questions)}, Used: {len(used_questions)}")
+    
+    # Log sample question to check schema
+    sample_question = db.questions.find_one({'category': {'$in': skill_ids}})
+    if sample_question:
+        logger.info(f"Sample question fields: {list(sample_question.keys())}")
+        logger.info(f"Sample question category: {sample_question.get('category')}")
+    
+    # Check if we've used all available questions
+    if not available_questions:
+        logger.info("No more available questions - session complete")
         return jsonify({'message': 'Session complete'}), 200
     
-    # First try to get review questions (FSRS due cards)
-    due_cards = FSRSHelper.get_due_cards(session['user_id'], skills=skill_ids, limit=10)
-    due_ids = [ObjectId(card['question_id']) for card in due_cards if ObjectId(card['question_id']) not in used_ids]
-    
-    question_doc = []
-    is_review = False
-    if due_ids:
-        question_doc = list(db.questions.find({'_id': {'$in': due_ids}}))
-        is_review = True
-    
-    # If no review questions, get new questions (only exclude those used in THIS session)
-    if not question_doc:
-        question_doc = list(db.questions.aggregate([
-            {'$match': {'skill_category': {'$in': skill_ids}, '_id': {'$nin': used_ids}}},
-            {'$sample': {'size': 5}}
-        ]))
-        is_review = False
-    
-    if not question_doc:
+    # Get next question from available questions
+    if available_questions:
+        next_q_id = available_questions[0]
+        next_q = db.questions.find_one({'_id': ObjectId(next_q_id)})
+        
+        if next_q:
+            # Update session state
+            db.lesson_sessions.update_one(
+                {'session_id': session_id},
+                {
+                    '$pop': {'available_questions': -1},  # Remove from front
+                    '$push': {'used_questions': next_q_id}
+                }
+            )
+            
+            is_review = False  # We'll handle review later
+            logger.info(f"Using next question from available pool: {next_q_id}")
+        else:
+            logger.error(f"Question {next_q_id} not found in database")
+            return jsonify({'error': 'Question not found'}), 404
+    else:
+        logger.info("No more available questions")
         return jsonify({'message': 'Session complete'}), 200
+        
+        # Log the first question to debug category matching
+        if question_doc:
+            logger.info(f"Sample new question - category: {question_doc[0].get('category')}, id: {question_doc[0].get('_id')}")
     
-    import random
-    next_q = random.choice(question_doc)
-    db.lesson_sessions.update_one(
-        {'session_id': session_id},
-        {'$push': {'question_ids': next_q['_id']}}
+    # Update seen_question_ids since this is a new question
+    db.users.update_one(
+        {'_id': ObjectId(session['user_id'])},
+        {'$addToSet': {'seen_question_ids': next_q['_id']}}
     )
-    
-    # Only update seen_question_ids if it's a new question (not review)
-    if not is_review:
-        db.users.update_one(
-            {'_id': ObjectId(session['user_id'])},
-            {'$addToSet': {'seen_question_ids': next_q['_id']}}
-        )
     
     # Ensure FSRS card exists for this question/user
     FSRSHelper.ensure_card(session['user_id'], str(next_q['_id']))
+    # Log full question document for debugging
+    logger.info(f"Selected question document fields: {list(next_q.keys())}")
+    
     question = {
         'id': str(next_q['_id']),
         'text': next_q.get('question_text') or next_q.get('text'),
         'options': next_q.get('options', []),
-        'skill_category': next_q.get('skill_category'),
+        'category': next_q.get('category'),  # Use consistent field name
         'difficulty': next_q.get('difficulty_level', next_q.get('difficulty', None)),
         'explanation': next_q.get('explanation', None),
         'is_review': is_review
     }
+    
+    # Validate question data before returning
+    if not question['text'] or not question['options']:
+        logger.error(f"Invalid question data: {question}")
+        return jsonify({'error': 'Invalid question data'}), 500
+        
+    logger.info(f"Returning question: {question['id']} with {len(question['options'])} options")
     return jsonify({'question': question})
 
 @lessons_bp.route('/due-count', methods=['GET'])
@@ -235,14 +277,32 @@ def submit_answer():
     is_correct = False
     correct_index = question.get('correct_answer')
     options = question.get('options', [])
+    # Log received data for debugging
+    logger.info(f"Received answer data: session_id={session_id}, question_id={question_id}, answer_index={answer_index}")
+    logger.info(f"Question data: correct_index={correct_index}, options={len(options) if options else 0}")
+    
     # Ensure both indices are integers and handle possible type issues
     try:
         answer_index_int = int(answer_index)
-        correct_index_int = int(correct_index)
+        correct_index_int = int(correct_index[0] if isinstance(correct_index, list) else correct_index)
     except (TypeError, ValueError):
-        return jsonify({'error': 'Invalid answer index or correct answer'}), 400
-    # Validate correct_index is within options
-    if not options or correct_index_int < 0 or correct_index_int >= len(options):
+        logger.error(f"Invalid index types: answer_index={type(answer_index)}, correct_index={type(correct_index)}")
+        return jsonify({
+            'error': 'Invalid answer index or correct answer',
+            'debug': {'answer': answer_index, 'correct': correct_index}
+        }), 400
+        
+    # Validate indices are within bounds
+    if not options:
+        logger.error(f"No options found for question {question_id}")
+        return jsonify({'error': 'Question has no options'}), 400
+        
+    if answer_index_int < 0 or answer_index_int >= len(options):
+        logger.error(f"Answer index {answer_index_int} out of range [0, {len(options)-1}]")
+        return jsonify({'error': 'Answer index out of range'}), 400
+        
+    if correct_index_int < 0 or correct_index_int >= len(options):
+        logger.error(f"Correct index {correct_index_int} out of range [0, {len(options)-1}]")
         debug_info = {
             'question_id': question_id,
             'options': options,

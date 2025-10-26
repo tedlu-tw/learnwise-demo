@@ -2,6 +2,9 @@ from utils.database import get_db
 from bson import ObjectId
 import datetime
 from utils.security import PasswordManager
+import logging
+
+logger = logging.getLogger(__name__)
 
 class User:
     def __init__(self, id=None, username=None, email=None, password_hash=None, role='user', last_login=None, selected_skills=None, total_questions_answered=0, seen_question_ids=None, correct_answers=0):
@@ -19,10 +22,16 @@ class User:
     @classmethod
     def find_by_email(cls, email):
         db = get_db()
-        data = db.users.find_one({'email': email})
-        if data:
-            return cls._from_dict(data)
-        return None
+        try:
+            data = db.users.find_one({'email': email})
+            if data:
+                logger.info(f"Found user with email {email}")
+                return cls._from_dict(data)
+            logger.warning(f"No user found with email {email}")
+            return None
+        except Exception as e:
+            logger.error(f"Error finding user by email {email}: {str(e)}")
+            return None
 
     @classmethod
     def find_by_username(cls, username):

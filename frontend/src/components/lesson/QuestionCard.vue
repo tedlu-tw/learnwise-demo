@@ -109,10 +109,19 @@ function selectAnswer(idx) {
 }
 
 function submitAnswer() {
+  if (selectedAnswer.value === null && selectedAnswers.value.length === 0) return
+
   answerSubmitted.value = true
   const response_time = Math.floor(Math.random() * 10) + 1 // Simulate
+  
+  // For single choice, send the selected index
+  // For multiple choice, send the first selected index (we'll enhance this later)
+  const answer_index = props.question.type === 'multiple' 
+    ? selectedAnswers.value[0]
+    : selectedAnswer.value
+
   emit('answer-submitted', { 
-    answer_index: props.question.type === 'multiple' ? selectedAnswers.value : [selectedAnswer.value],
+    answer_index,
     is_correct: isCorrect.value,
     response_time 
   })
