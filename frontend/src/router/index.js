@@ -20,15 +20,33 @@ const router = createRouter({
     routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
     const auth = useAuthStore()
     const isAuthenticated = auth.isLoggedIn || !!localStorage.getItem('token')
-    
+
+    // Handle authentication routes
     if (to.meta.requiresAuth && !isAuthenticated) {
         return next({ path: '/login' })
-    } else if (to.name === 'login' && isAuthenticated){
+    }
+    
+    if (to.name === 'login' && isAuthenticated) {
         return next({ path: '/dashboard' })
     }
+
+    // Initialize auth if needed
+    if (isAuthenticated && !auth.user) {
+        await auth.initializeAuth()
+    }
+
+    // Special handling for learning session routes
+    if (to.name === 'LearningSession') {
+        // If no skills selected, redirect to skill selection
+        if (!auth.user?.selected_skills?.length) {
+            console.log('No skills selected, redirecting to skills page')
+            return next({ path: '/skills' })
+        }
+    }
+
     next()
 })
 

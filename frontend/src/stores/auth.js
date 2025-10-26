@@ -16,11 +16,14 @@ export const useAuthStore = defineStore('auth', {
       try {
         const data = await authService.login(credentials)
         this.token = data.access_token
-        this.user = data.user
+        this.user = {
+          ...data.user,
+          selected_skills: data.user.selected_skills || []
+        }
         this.error = null
         // Store both token and user data in localStorage
         localStorage.setItem('token', data.access_token)
-        localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('user', JSON.stringify(this.user))
       } catch (e) {
         this.error = e.response?.data?.error || 'Login failed'
         this.user = null

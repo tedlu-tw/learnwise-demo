@@ -111,8 +111,15 @@ async function saveSkills() {
     try {
         saveError.value = ''
         // First update user skills
-        await userService.updateSkills(selectedSkills.value)
-        auth.user.selected_skills = selectedSkills.value
+        const updatedUser = await userService.updateSkills(selectedSkills.value)
+        
+        // Update both auth store and localStorage
+        auth.user = {
+            ...auth.user,
+            selected_skills: selectedSkills.value
+        }
+        localStorage.setItem('user', JSON.stringify(auth.user))
+        console.log('Updated user skills:', auth.user.selected_skills)
         
         try {
             // Then try to start the lesson
