@@ -19,8 +19,8 @@
           question.type === 'multiple' 
             ? (selectedAnswers.includes(idx) ? 'border-blue-500 bg-blue-50' : '')
             : (selectedAnswer === idx ? 'border-blue-500 bg-blue-50' : ''),
-          answerSubmitted && question.correct_answer.includes(idx) ? 'border-green-500 bg-green-50' : '',
-          answerSubmitted && !question.correct_answer.includes(idx) && 
+          answerSubmitted && question.correct_indices.includes(idx) ? 'border-green-500 bg-green-50' : '',
+          answerSubmitted && !question.correct_indices.includes(idx) && 
             (question.type === 'multiple' ? selectedAnswers.includes(idx) : selectedAnswer === idx)
             ? 'border-red-500 bg-red-50' : ''
         ]"
@@ -69,7 +69,7 @@
   </div>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import MathText from '@/components/common/MathText.vue'
 const props = defineProps({
   question: Object,
@@ -79,18 +79,19 @@ const props = defineProps({
 const selectedAnswer = ref(null)
 const selectedAnswers = ref([])
 const answerSubmitted = ref(false)
+const startTime = ref(Date.now())  // Track when question is shown
 
 const progressPercentage = computed(() => Math.round((props.current / props.total) * 100))
 const isCorrect = computed(() => {
   if (props.question.type === 'multiple') {
     const selected = selectedAnswers.value
-    const correct = props.question.correct_answer
+    const correct = props.question.correct_indices
     return selected.length === correct.length && 
            selected.every(ans => correct.includes(ans)) &&
            correct.every(ans => selected.includes(ans))
   }
   return selectedAnswer.value !== null && 
-         props.question.correct_answer.includes(selectedAnswer.value)
+         props.question.correct_indices.includes(selectedAnswer.value)
 })
 
 function selectAnswer(idx) {
@@ -112,7 +113,7 @@ function submitAnswer() {
   if (selectedAnswer.value === null && selectedAnswers.value.length === 0) return
 
   answerSubmitted.value = true
-  const response_time = Math.floor(Math.random() * 10) + 1 // Simulate
+  const response_time = (Date.now() - startTime.value) / 1000  // Convert to seconds
   
   // Handle both single and multiple choice questions
   const answer = props.question.type === 'multiple' 
@@ -126,11 +127,12 @@ function submitAnswer() {
   })
 }
 
-// Reset selections when question changes
+// Reset selections and start time when question changes
 watch(() => props.question, () => {
   selectedAnswer.value = null
   selectedAnswers.value = []
   answerSubmitted.value = false
+  startTime.value = Date.now()  // Reset start time for new question
 })
 const emit = defineEmits(['answer-submitted', 'next-question'])
 </script>

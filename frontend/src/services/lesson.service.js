@@ -76,15 +76,38 @@ class LessonService {
     }
   }
 
-  async submitAnswer(session_id, question_id, answer) {
+  async submitAnswer(session_id, question_id, answer, response_time) {
     try {
-      // answer is now an array for both single and multiple choice questions
-      const res = await api.post('/lessons/submit', { 
-        session_id, 
-        question_id, 
-        answer_indices: answer  // Updated field name to be clear it's an array
+      // Ensure response_time is a positive number
+      if (typeof response_time !== 'number' || response_time <= 0) {
+        response_time = 1; // Default to 1 second if invalid
+      }
+      
+      const res = await api.post('/lessons/submit', {
+        session_id,
+        question_id,
+        answer_indices: Array.isArray(answer) ? answer : [answer],
+        response_time: Math.max(0.1, Math.round(response_time * 100) / 100)  // Round to 2 decimals, minimum 0.1s
       })
-      return res.data
+
+      // Process feedback
+      if (res.data.feedback) {
+        const feedback = res.data.feedback
+        console.log('Learning feedback:', {
+          nextReview: new Date(feedback.next_review),
+          daysUntilReview: feedback.days_until_review,
+          state: feedback.state,
+          difficulty: feedback.difficulty
+        })
+      }
+
+      return {
+        ...res.data,
+        streak: res.data.streak || 0,
+        correct: res.data.feedback?.correct,
+        correct_indices: res.data.feedback?.correct_indices,
+        selected_indices: res.data.selected_indices
+      }
     } catch (error) {
       console.error('Error submitting answer:', error.response?.data || error)
       throw error
@@ -94,7 +117,13 @@ class LessonService {
   async getProgressSummary() {
     try {
       const res = await api.get('/lessons/progress-summary')
-      return res.data
+      return {
+        ...res.data,
+        retentionRate: res.data.retention_rate,
+        totalCards: res.data.total_cards,
+        cardsByState: res.data.states || {},
+        streak: res.data.current_streak || 0
+      }
     } catch (error) {
       console.error('Error getting progress summary:', error.response?.data || error)
       throw error

@@ -148,6 +148,7 @@ const router = useRouter()
 
 const selectedAnswer = ref(null)
 const selectedAnswers = ref([])
+const startTime = ref(Date.now())  // Track when question is shown
 const currentQuestion = ref(1)
 const totalQuestions = ref(10)
 const feedback = ref(null)
@@ -197,6 +198,7 @@ watch(question, () => {
     selectedAnswers.value = []
     answerSubmitted.value = false
     feedback.value = null
+    startTime.value = Date.now()  // Reset timer for new question
 })
 
 function toggleAnswer(idx) {
@@ -217,6 +219,9 @@ async function submitAnswer() {
     const sessionId = lesson.currentSession?.session_id
     const questionId = question.value?.id
     
+    // Calculate response time in seconds
+    const responseTime = (Date.now() - startTime.value) / 1000
+    
     // Send answers as array for both single and multiple choice
     const answerArray = question.value.type === 'multiple' 
         ? selectedAnswers.value
@@ -226,8 +231,19 @@ async function submitAnswer() {
     
     if (sessionId && questionId) {
         try {
-            const res = await lessonService.submitAnswer(sessionId, questionId, answerArray)
-            feedback.value = res
+            const res = await lessonService.submitAnswer(
+                sessionId, 
+                questionId, 
+                answerArray,
+                responseTime
+            )
+            feedback.value = {
+                correct: res.correct,
+                correct_indices: res.correct_indices,
+                selected_indices: res.selected_indices,
+                message: res.feedback?.message,
+                explanation: res.explanation
+            }
             answerSubmitted.value = true
         } catch (err) {
             error.value = err.message || 'Failed to submit answer'
@@ -249,42 +265,20 @@ async function nextQuestion() {
     
     try {
         const nextRes = await lessonService.getNextQuestion(sessionId)
-        if (nextRes.completed) {
-            // Session is complete, redirect to dashboard or summary
-            router.push('/dashboard')
-            return
-        }
-        
         if (nextRes.question) {
             question.value = nextRes.question
-            currentQuestion.value++
+            lesson.setCurrentQuestion(nextRes.question)
+        } else {
+            // No more questions, finish the lesson
+            await lesson.finishLesson(sessionId)
+            router.push('/dashboard')
         }
     } catch (err) {
         error.value = err.message || 'Failed to load next question'
     }
 }
-
-function retrySession() {
-    error.value = null
-    location.reload()
-}
 </script>
+
 <style scoped>
-.btn {
-    padding: 0.75rem 1.5rem;
-    background-color: #2563eb;
-    color: white;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.btn:hover {
-    background-color: #1d4ed8;
-}
-
-.btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
+/* Add any component-specific styles here */
 </style>
