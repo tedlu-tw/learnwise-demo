@@ -13,16 +13,38 @@ def get_categories():
         current_app.logger.info(f"Fetching categories for user {user_id}")
         
         db = get_db()
-        categories = db.questions.distinct('category')
-        current_app.logger.info(f"Found categories: {categories}")
         
+        # Try both field names and merge results
+        categories_by_category = db.questions.distinct('category')
+        categories_by_skill = db.questions.distinct('skill_category')
+        
+        # Combine and deduplicate categories
+        all_categories = list(set([c.lower() for c in categories_by_category + categories_by_skill if c]))
+        
+        current_app.logger.info(f"Found categories: {all_categories}")
+        
+        if not all_categories:
+            # Return default categories if none found in database
+            default_categories = ['arithmetic', 'algebra', 'geometry', 'trigonometry', 'calculus']
+            current_app.logger.warning("No categories found in DB, using defaults")
+            return jsonify({
+                'success': True,
+                'categories': default_categories,
+                'is_default': True
+            })
+            
         return jsonify({
             'success': True,
-            'categories': sorted(categories) if categories else []
+            'categories': sorted(all_categories),
+            'is_default': False
         })
     except Exception as e:
-        current_app.logger.error(f"Error fetching categories: {str(e)}")
+        current_app.logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
+        # Return default categories on error
+        default_categories = ['arithmetic', 'algebra', 'geometry', 'trigonometry', 'calculus']
         return jsonify({
-            'success': False,
+            'success': True,
+            'categories': default_categories,
+            'is_default': True,
             'error': str(e)
-        }), 500
+        })

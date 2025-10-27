@@ -31,7 +31,14 @@ def create_app():
     limiter.init_app(app)
 
     # MongoDB
-    app.mongo = MongoClient(app.config['MONGODB_URI'])
+    try:
+        app.mongo = MongoClient(app.config['MONGODB_URI'], serverSelectionTimeoutMS=5000)
+        # Verify connection
+        app.mongo.server_info()
+        app.logger.info("Successfully connected to MongoDB")
+    except Exception as e:
+        app.logger.error(f"Failed to connect to MongoDB: {str(e)}", exc_info=True)
+        raise
 
     # Register blueprints
     app.register_blueprint(auth_bp, url_prefix='/api/auth')

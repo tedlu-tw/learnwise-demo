@@ -357,8 +357,15 @@ def submit_answer():
         if not all([session_id, question_id]):
             logger.error("Missing required fields in submit answer")
             return jsonify({'error': 'Missing required fields'}), 400
-    
-    db = Question.get_db() if hasattr(Question, 'get_db') else None
+
+        db = Question.get_db() if hasattr(Question, 'get_db') else None
+        if db is None:
+            from utils.database import get_db
+            db = get_db()
+            
+    except Exception as e:
+        logger.error(f"Error in submit_answer initialization: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error during initialization'}), 500
     if db is None:
         from utils.database import get_db
         db = get_db()

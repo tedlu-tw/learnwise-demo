@@ -148,8 +148,8 @@ const register = async () => {
             password: password.value
         })
         
-        // Registration successful, redirect to skills selection
-        router.push('/skills')
+        // Registration successful, redirect to skill selection
+        router.push('/skill-selection')
     } catch (e) {
         // Display the error from the auth store if available
         error.value = e.message || auth.error || '註冊失敗，請稍後再試'
