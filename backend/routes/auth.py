@@ -19,9 +19,9 @@ def register():
         if not data.get(field):
             return jsonify({'error': f'{field} required'}), 400
     if User.find_by_email(data['email']):
-        return jsonify({'error': 'Email already registered'}), 409
+        return jsonify({'error': '該電子郵件信箱已被註冊'}), 409
     if User.find_by_username(data['username']):
-        return jsonify({'error': 'Username already taken'}), 409
+        return jsonify({'error': '該使用者名稱已被註冊'}), 409
     try:
         user = User.create_user(
             username=data['username'],

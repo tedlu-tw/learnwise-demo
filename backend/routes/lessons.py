@@ -233,6 +233,7 @@ def get_due_count():
 @jwt_required()
 def get_progress_summary():
     user_id = get_jwt_identity()
+    logger.info(f"Getting progress summary for user: {user_id}")
     try:
         # Get the database connection
         db = get_db()
@@ -261,12 +262,9 @@ def get_progress_summary():
         ]
         skill_totals = {doc['_id']: doc['total'] for doc in db.questions.aggregate(pipeline)}
         
-        # Get completed questions per skill
+        # Get completed questions per skill with more reliable counting
         pipeline = [
-            {'$match': {
-                'user_id': ObjectId(user_id),
-                'is_correct': True
-            }},
+            {'$match': {'user_id': ObjectId(user_id)}},
             {'$lookup': {
                 'from': 'questions',
                 'localField': 'question_id',
@@ -277,7 +275,13 @@ def get_progress_summary():
             {'$group': {
                 '_id': '$question.category',
                 'answered': {'$sum': 1},
-                'total_correct': {'$sum': {'$cond': ['$is_correct', 1, 0]}}
+                'total_correct': {'$sum': {'$cond': {'if': {'$eq': ['$is_correct', True]}, 'then': 1, 'else': 0}}},
+                'questions': {'$addToSet': '$question_id'}  # Track unique questions
+            }},
+            {'$project': {
+                '_id': 1,
+                'answered': {'$size': '$questions'},  # Count unique questions only
+                'total_correct': 1
             }}
         ]
         skill_progress = db.lesson_reports.aggregate(pipeline)
@@ -321,6 +325,11 @@ def get_progress_summary():
         return jsonify({
             'total_questions': total_answered,
             'accuracy_rate': round((total_correct / total_answered * 100), 2) if total_answered > 0 else 0,
+            'debug_stats': {
+                'total_correct': total_correct,
+                'total_answered': total_answered,
+                'skills_count': len(selected_skills)
+            },
             'mastery_rate': round(mastery_rate, 2),
             'skills_progress': skills_progress,
             'learning_stats': {
@@ -336,11 +345,18 @@ def get_progress_summary():
 @lessons_bp.route('/submit', methods=['POST'])
 @jwt_required()
 def submit_answer():
-    data = request.get_json()
-    session_id = data.get('session_id')
-    question_id = data.get('question_id')
-    answer_indices = data.get('answer_indices', [])  # Now expects an array
-    rating = data.get('rating')  # Accept FSRS rating from frontend
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        question_id = data.get('question_id')
+        answer_indices = data.get('answer_indices', [])  # Now expects an array
+        rating = data.get('rating')  # Accept FSRS rating from frontend
+        
+        logger.info(f"Submit answer - session: {session_id}, question: {question_id}, answer: {answer_indices}")
+        
+        if not all([session_id, question_id]):
+            logger.error("Missing required fields in submit answer")
+            return jsonify({'error': 'Missing required fields'}), 400
     
     db = Question.get_db() if hasattr(Question, 'get_db') else None
     if db is None:
@@ -400,19 +416,17 @@ def submit_answer():
     is_correct = (set(answer_indices) == set(correct_indices))
     
     # Update user stats
-    if is_correct:
-        db.users.update_one(
-            {'_id': ObjectId(user_id)}, 
-            {
-                '$inc': {'correct_answers': 1},
-                '$addToSet': {'seen_question_ids': ObjectId(question_id)}
-            }
-        )
-    else:
-        db.users.update_one(
-            {'_id': ObjectId(user_id)}, 
-            {'$inc': {'total_questions_answered': 1}}
-        )
+    update = {
+        '$inc': {
+            'total_questions_answered': 1,
+            'correct_answers': 1 if is_correct else 0
+        },
+        '$addToSet': {'seen_question_ids': ObjectId(question_id)}
+    }
+    db.users.update_one(
+        {'_id': ObjectId(user_id)}, 
+        update
+    )
     
     # --- FSRS integration: update card state ---
     from fsrs import Rating
@@ -436,19 +450,36 @@ def submit_answer():
     # Update FSRS card
     card = FSRSHelper.update_card(user_id, question_id, fsrs_rating)
     
-    # Store answer history in lesson_reports
-    db.lesson_reports.insert_one({
+    # Store answer history in lesson_reports with atomic update
+    report_id = db.lesson_reports.insert_one({
         'user_id': ObjectId(user_id),
         'session_id': session_id,
         'question_id': ObjectId(question_id),
-        'response': answer_indices,  # Store full array of answers
-        'is_correct': is_correct,
+        'response': answer_indices,
+        'is_correct': bool(is_correct),
         'rating': fsrs_rating.value,
         'fsrs_state': card.state if card else None,
         'timestamp': datetime.utcnow(),
         'options': options,
+        'correct_indices': correct_indices,
         'type': question.get('type', 'single')
-    })
+    }).inserted_id
+    
+    # Update user stats atomically
+    db.users.update_one(
+        {'_id': ObjectId(user_id)},
+        {
+            '$inc': {
+                'stats.total_answered': 1,
+                'stats.total_correct': 1 if is_correct else 0
+            },
+            '$set': {
+                'stats.last_answer_at': datetime.utcnow(),
+                'stats.last_answer_correct': is_correct
+            }
+        },
+        upsert=True
+    )
     
     # Get the explanation without duplicating correct answers
     explanation = question.get('explanation', '')

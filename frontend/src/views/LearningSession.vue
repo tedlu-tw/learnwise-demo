@@ -30,7 +30,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                                         d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                選擇所有正確答案 (可複選)
+                                選擇所有正確答案（可複選）
                             </span>
                             <span v-else
                                 class="px-3 py-2 text-sm font-medium rounded bg-blue-100 text-blue-800 flex items-center gap-2">
