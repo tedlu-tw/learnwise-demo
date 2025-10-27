@@ -196,7 +196,9 @@ def next_question():
         'category': next_q.get('category'),  # Use consistent field name
         'difficulty': next_q.get('difficulty_level', next_q.get('difficulty', None)),
         'explanation': next_q.get('explanation', None),
-        'is_review': is_review
+        'is_review': is_review,
+        'type': next_q.get('type', 'single'),  # Add type field with default as single
+        'correct_answer': next_q.get('correct_answer', [])  # Add correct_answer array
     }
     
     # Validate question data before returning
@@ -261,59 +263,70 @@ def submit_answer():
     data = request.get_json()
     session_id = data.get('session_id')
     question_id = data.get('question_id')
-    answer_index = data.get('answer_index')
+    answer_indices = data.get('answer_indices', [])  # Now expects an array
     rating = data.get('rating')  # Accept FSRS rating from frontend
+    
     db = Question.get_db() if hasattr(Question, 'get_db') else None
     if db is None:
         from utils.database import get_db
         db = get_db()
+        
     session = db.lesson_sessions.find_one({'session_id': session_id})
     if not session:
         return jsonify({'error': 'Session not found'}), 404
+        
     user_id = session['user_id']
     question = db.questions.find_one({'_id': ObjectId(question_id)})
     if not question:
         return jsonify({'error': 'Question not found'}), 404
+
     is_correct = False
-    correct_index = question.get('correct_answer')
+    correct_indices = question.get('correct_answer')
     options = question.get('options', [])
-    # Log received data for debugging
-    logger.info(f"Received answer data: session_id={session_id}, question_id={question_id}, answer_index={answer_index}")
-    logger.info(f"Question data: correct_index={correct_index}, options={len(options) if options else 0}")
     
-    # Ensure both indices are integers and handle possible type issues
+    # Ensure correct_indices is always a list
+    if not isinstance(correct_indices, list):
+        correct_indices = [correct_indices]
+        
+    # Log received data for debugging
+    logger.info(f"Received answer data: session_id={session_id}, question_id={question_id}, answer_indices={answer_indices}")
+    logger.info(f"Question data: correct_indices={correct_indices}, options={len(options) if options else 0}")
+    
+    # Validate answer indices
     try:
-        answer_index_int = int(answer_index)
-        correct_index_int = int(correct_index[0] if isinstance(correct_index, list) else correct_index)
+        answer_indices = [int(idx) for idx in answer_indices]
     except (TypeError, ValueError):
-        logger.error(f"Invalid index types: answer_index={type(answer_index)}, correct_index={type(correct_index)}")
-        return jsonify({
-            'error': 'Invalid answer index or correct answer',
-            'debug': {'answer': answer_index, 'correct': correct_index}
-        }), 400
+        logger.error(f"Invalid answer indices: {answer_indices}")
+        return jsonify({'error': 'Invalid answer indices'}), 400
         
     # Validate indices are within bounds
     if not options:
         logger.error(f"No options found for question {question_id}")
         return jsonify({'error': 'Question has no options'}), 400
         
-    if answer_index_int < 0 or answer_index_int >= len(options):
-        logger.error(f"Answer index {answer_index_int} out of range [0, {len(options)-1}]")
-        return jsonify({'error': 'Answer index out of range'}), 400
-        
-    if correct_index_int < 0 or correct_index_int >= len(options):
-        logger.error(f"Correct index {correct_index_int} out of range [0, {len(options)-1}]")
-        debug_info = {
-            'question_id': question_id,
-            'options': options,
-            'correct_index': correct_index_int,
-            'question_text': question.get('question_text')
-        }
-        return jsonify({'error': 'Correct answer index out of range', 'debug': debug_info}), 400
-    if correct_index is not None and answer_index_int == correct_index_int:
-        is_correct = True
+    for idx in answer_indices:
+        if idx < 0 or idx >= len(options):
+            logger.error(f"Answer index {idx} out of range [0, {len(options)-1}]")
+            return jsonify({'error': 'Answer index out of range'}), 400
+            
+    for idx in correct_indices:
+        if idx < 0 or idx >= len(options):
+            logger.error(f"Correct index {idx} out of range [0, {len(options)-1}]")
+            debug_info = {
+                'question_id': question_id,
+                'options': options,
+                'correct_indices': correct_indices,
+                'question_text': question.get('question_text')
+            }
+            return jsonify({'error': 'Correct answer index out of range', 'debug': debug_info}), 400
+            
+    # Check if answer is correct (all correct answers selected and no incorrect ones)
+    is_correct = (set(answer_indices) == set(correct_indices))
+    
+    if is_correct:
         db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'correct_answers': 1}})
     db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'total_questions_answered': 1}})
+    
     # --- FSRS integration: update card state ---
     from fsrs import Rating
     # Accept nuanced FSRS rating from frontend
@@ -332,20 +345,27 @@ def submit_answer():
             fsrs_rating = Rating.Good
     else:
         fsrs_rating = Rating.Good if is_correct else Rating.Again
+        
     FSRSHelper.update_card(user_id, question_id, fsrs_rating)
-    # Optionally, store answer history in lesson_reports
+    
+    # Store answer history in lesson_reports
     db.lesson_reports.insert_one({
         'user_id': ObjectId(user_id),
-        'session_id': session_id,  # Store as string, not ObjectId
+        'session_id': session_id,
         'question_id': ObjectId(question_id),
-        'response': answer_index_int,
+        'response': answer_indices,  # Store full array of answers
         'is_correct': is_correct,
         'rating': fsrs_rating.value,
         'timestamp': datetime.utcnow(),
         'options': options
     })
-    # Return correct explanation if correct, else fallback to question explanation
+    
+    # Get the explanation without duplicating correct answers
     explanation = question.get('explanation', '')
-    if not is_correct:
-        explanation = f"Correct answer: {options[correct_index_int]}. {explanation}"
-    return jsonify({'correct': is_correct, 'correct_index': correct_index_int, 'explanation': explanation, 'options': options})
+            
+    return jsonify({
+        'correct': is_correct, 
+        'correct_indices': correct_indices, 
+        'explanation': explanation, 
+        'options': options
+    })

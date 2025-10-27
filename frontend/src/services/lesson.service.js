@@ -51,6 +51,24 @@ class LessonService {
         throw new Error('Invalid question data received from server')
       }
 
+      // Ensure question type is set
+      if (!res.data.question.type) {
+        console.warn('Question type not set, defaulting to single')
+        res.data.question.type = 'single'
+      }
+
+      // Validate type is either single or multiple
+      if (!['single', 'multiple'].includes(res.data.question.type)) {
+        console.error('Invalid question type:', res.data.question.type)
+        throw new Error('Invalid question type received from server')
+      }
+
+      console.log('Processed question:', {
+        ...res.data.question,
+        type: res.data.question.type,
+        options: res.data.question.options.length
+      })
+
       return res.data
     } catch (error) {
       console.error('Error getting next question:', error.response?.data || error)
@@ -58,12 +76,13 @@ class LessonService {
     }
   }
 
-  async submitAnswer(session_id, question_id, answer_index) {
+  async submitAnswer(session_id, question_id, answer) {
     try {
+      // answer is now an array for both single and multiple choice questions
       const res = await api.post('/lessons/submit', { 
         session_id, 
         question_id, 
-        answer_index 
+        answer_indices: answer  // Updated field name to be clear it's an array
       })
       return res.data
     } catch (error) {

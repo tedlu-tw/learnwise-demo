@@ -114,14 +114,13 @@ function submitAnswer() {
   answerSubmitted.value = true
   const response_time = Math.floor(Math.random() * 10) + 1 // Simulate
   
-  // For single choice, send the selected index
-  // For multiple choice, send the first selected index (we'll enhance this later)
-  const answer_index = props.question.type === 'multiple' 
-    ? selectedAnswers.value[0]
-    : selectedAnswer.value
+  // Handle both single and multiple choice questions
+  const answer = props.question.type === 'multiple' 
+    ? selectedAnswers.value     // Send full array for multiple choice
+    : [selectedAnswer.value]    // Wrap single choice in array for consistency
 
   emit('answer-submitted', { 
-    answer_index,
+    answer,
     is_correct: isCorrect.value,
     response_time 
   })

@@ -77,7 +77,7 @@ export const useLessonStore = defineStore('lesson', {
       }
     },
 
-    async submitAnswer(questionId, answerIndex) {
+    async submitAnswer(questionId, answerArray) {
       try {
         this.loading = true
         this.error = null
@@ -89,13 +89,13 @@ export const useLessonStore = defineStore('lesson', {
         console.log('Submitting answer:', { 
           sessionId: this.currentSession.session_id,
           questionId,
-          answerIndex
+          answerArray
         })
         
         const response = await lessonService.submitAnswer(
           this.currentSession.session_id,
           questionId,
-          answerIndex
+          answerArray
         )
         
         console.log('Answer submission response:', response)
