@@ -9,7 +9,10 @@ export const useAuthStore = defineStore('auth', {
   }),
   getters: {
     currentUser: (state) => state.user,
-    isLoggedIn: (state) => !!state.token && !!state.user
+    isLoggedIn: (state) => {
+      // Check both state and localStorage
+      return (!!state.token && !!state.user) || !!localStorage.getItem('token')
+    }
   },
   actions: {
     async login(credentials) {

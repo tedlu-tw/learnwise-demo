@@ -6,7 +6,7 @@
                 <!-- Welcome Message -->
                 <div class="mb-8">
                     <h1 class="text-2xl font-bold text-gray-800">
-                        歡迎回來，{{ user?.username || '同學' }}！
+                        歡迎回來，{{ auth.currentUser?.username || '同學' }}！
                     </h1>
                     <p class="text-gray-600 mt-2">
                         {{ getGreetingMessage() }}
@@ -52,7 +52,15 @@
                     <!-- Skills Progress Section -->
                     <div class="bg-white rounded-lg shadow-md p-6 border border-gray-200">
                         <div class="flex justify-between items-center mb-6">
-                            <h3 class="text-lg font-semibold text-gray-900">技能進度</h3>
+                            <div class="flex items-center gap-4">
+                                <h3 class="text-lg font-semibold text-gray-900">技能進度</h3>
+                                <button 
+                                    @click="$router.push({ path: '/skill-selection', query: { fromDashboard: 'true' }})"
+                                    class="px-3 py-1 text-sm bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 transition-colors duration-200"
+                                >
+                                    更新學習技能
+                                </button>
+                            </div>
                             <button @click="refreshProgress" class="text-blue-500 hover:text-blue-700">
                                 <i class="fas fa-sync-alt" :class="{ 'animate-spin': refreshing }"></i>
                             </button>
@@ -108,7 +116,6 @@ import Nav from '@/components/common/Nav.vue'
 
 const lesson = useLessonStore()
 const auth = useAuthStore()
-const user = auth.currentUser
 const loading = ref(true)
 const refreshing = ref(false)
 const stats = ref({

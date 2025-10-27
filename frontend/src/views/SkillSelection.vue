@@ -1,8 +1,13 @@
 <template>
     <Nav :showLogin="false" activeItem="session" />
     <div class="max-w-4xl mx-auto mt-10 p-6 bg-white rounded shadow">
-        <h2 class="text-2xl font-bold mb-4">選擇學習領域</h2>
-        <div class="mb-6">
+        <h2 class="text-2xl font-bold mb-4">{{ fromDashboard ? '更新學習領域' : '選擇學習領域' }}</h2>
+        
+        <div v-if="loading" class="flex justify-center items-center py-12">
+            <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        
+        <div v-else class="mb-6">
             <p class="text-gray-600 mb-4">請選擇您想要學習的數學領域（可複選）：</p>
             <div class="mb-4">
                 <input type="text" 
@@ -72,16 +77,35 @@ const router = useRouter()
 const auth = useAuthStore()
 const lesson = useLessonStore()
 
+// Computed property to check if coming from dashboard
+const fromDashboard = computed(() => router.currentRoute.value.query.fromDashboard === 'true')
+
 // Fetch categories from backend
 onMounted(async () => {
     try {
-        skills.value = await userService.getCategories()
-        // If user has previously selected skills, load them
+        // If we don't have auth.user, try to initialize
+        if (!auth.user && localStorage.getItem('token')) {
+            await auth.initializeAuth()
+        }
+
+        // Fetch categories and ensure auth is initialized
+        const categoriesData = await userService.getCategories()
+        
+        // If we don't have valid auth state, try to reinitialize
+        if (!auth.isLoggedIn && localStorage.getItem('token')) {
+            await auth.initializeAuth()
+        }
+
+        skills.value = categoriesData
+        
+        // Load user's current skills
         if (auth.user?.selected_skills?.length) {
-            selectedSkills.value = auth.user.selected_skills
+            selectedSkills.value = [...auth.user.selected_skills] // Create new array to ensure reactivity
+            console.log('Loaded user skills:', selectedSkills.value)
         }
     } catch (error) {
-        console.error('Failed to fetch categories:', error)
+        console.error('Failed to initialize skill selection:', error)
+        saveError.value = '載入失敗，請重新整理頁面'
     } finally {
         loading.value = false
     }
@@ -98,7 +122,10 @@ const filteredSkills = computed(() => {
 
 // Handle skill selection
 function toggleSkill(skill) {
-    const index = selectedSkills.value.indexOf(skill)
+    // Case-insensitive check for duplicates
+    const normalizedSkill = skill.toLowerCase()
+    const index = selectedSkills.value.findIndex(s => s.toLowerCase() === normalizedSkill)
+    
     if (index === -1) {
         selectedSkills.value.push(skill)
     } else {
@@ -107,11 +134,32 @@ function toggleSkill(skill) {
 }
 
 async function saveSkills() {
-    if (!selectedSkills.value.length) return
     try {
+        // Reset error state
         saveError.value = ''
+
+        // Validate selection
+        if (!selectedSkills.value.length) {
+            saveError.value = '請至少選擇一個學習領域'
+            return
+        }
+
+        // Remove duplicates and normalize
+        const normalizedSkills = [...new Set(selectedSkills.value.map(s => s.toLowerCase()))]
+        
+        // Check if selection is different from current
+        const currentSkills = auth.user?.selected_skills?.map(s => s.toLowerCase()) || []
+        const hasChanges = normalizedSkills.length !== currentSkills.length || 
+            normalizedSkills.some(s => !currentSkills.includes(s))
+
+        if (!hasChanges) {
+            console.log('No changes in skill selection')
+            router.push('/dashboard')
+            return
+        }
+
         // First update user skills
-        const updatedUser = await userService.updateSkills(selectedSkills.value)
+        await userService.updateSkills(selectedSkills.value)
         
         // Update both auth store and localStorage
         auth.user = {
@@ -122,17 +170,21 @@ async function saveSkills() {
         console.log('Updated user skills:', auth.user.selected_skills)
         
         try {
-            // Then try to start the lesson
-            await lesson.startLesson('initial', selectedSkills.value)
-            router.push('/session')
+            // Try to start a new lesson if coming from registration
+            if (!router.currentRoute.value.query.fromDashboard) {
+                await lesson.startLesson('initial', selectedSkills.value)
+                router.push('/session')
+                return
+            }
         } catch (error) {
             console.error('Failed to start lesson:', error)
-            // Even if starting lesson fails, skills were saved
-            router.push('/dashboard')
         }
+        
+        // Return to dashboard if skills were updated successfully
+        router.push('/dashboard')
     } catch (error) {
         console.error('Failed to save skills:', error)
-        saveError.value = '保存失敗，請稍後再試'
+        saveError.value = error.response?.data?.error || '保存失敗，請稍後再試'
     }
 }
 </script>
