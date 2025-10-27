@@ -1,13 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import Login from '@/views/Login.vue'
+import Register from '@/views/Register.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import SkillSelection from '@/views/SkillSelection.vue'
 import LearningSession from '@/views/LearningSession.vue'
 import KatexTest from '@/views/KatexTest.vue'
 
 const routes = [
-    { path: '/login', name: 'Login', component: Login, name: 'login' },
+    { path: '/login', name: 'Login', component: Login },
+    { path: '/register', name: 'Register', component: Register },
     { path: '/skills', name: 'SkillSelection', component: SkillSelection, meta: { requiresAuth: true } },
     { path: '/session', name: 'LearningSession', component: LearningSession, meta: { requiresAuth: true } },
     { path: '/dashboard', name: 'Dashboard', component: Dashboard, meta: { requiresAuth: true } },

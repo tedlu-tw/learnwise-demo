@@ -17,11 +17,28 @@ export const authService = {
 
   async register({ username, email, password }) {
     try {
-      const res = await axios.post('/auth/register', { username, email, password })
-      return res.data
+      // First register the user
+      const registerRes = await axios.post('/auth/register', { username, email, password })
+      console.log('Registration response:', registerRes.data)
+      
+      if (!registerRes.data.message?.includes('successfully')) {
+        throw new Error('Registration failed: Invalid response')
+      }
+      
+      // If registration successful, automatically log in
+      const loginRes = await axios.post('/auth/login', { email, password })
+      console.log('Auto-login response:', loginRes.data)
+      
+      if (!loginRes.data || !loginRes.data.access_token || !loginRes.data.user) {
+        throw new Error('Auto-login failed after registration')
+      }
+      
+      return loginRes.data
     } catch (error) {
-      console.error('Registration error:', error.response?.data || error)
-      throw error
+      console.error('Registration/Login error:', error.response?.data || error)
+      // Include more detail in the error message
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message
+      throw new Error(errorMessage || 'Registration failed')
     }
   },
 

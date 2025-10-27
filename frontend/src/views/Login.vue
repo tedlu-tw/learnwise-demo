@@ -17,7 +17,10 @@
                 <button type="submit" class="w-96 bg-black text-white rounded-lg px-4 py-2 mt-4">登入</button>
             </form>
             <!-- register notice -->
-            <span class="text-sm text-[#828282] mt-5">還沒有帳號嗎？<a href="#" class="text-black">註冊</a></span>
+            <span class="text-sm text-[#828282] mt-5">
+                還沒有帳號嗎？
+                <router-link to="/register" class="text-black hover:underline">註冊</router-link>
+            </span>
         </div>
     </div>
 </template>
@@ -51,10 +54,19 @@ async function login() {
 </script>
 <style scoped>
 .input {
-    @apply border rounded px-3 py-2;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    padding: 0.75rem 1rem;
 }
 
 .btn {
-    @apply bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600;
+    background-color: #3b82f6;
+    color: white;
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+}
+
+.btn:hover {
+    background-color: #2563eb;
 }
 </style>
