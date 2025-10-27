@@ -17,9 +17,9 @@ FSRS Card Schema (MongoDB: fsrs_cards collection):
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from utils.database import get_db
-from fsrs import Card, State
+from fsrs import Card, State, Rating
 from bson import ObjectId
 import logging
 
@@ -48,6 +48,25 @@ class FSRSCard:
     @property
     def id(self):
         return self._id
+
+    @property
+    def days_until_due(self) -> float:
+        """Calculate days until the next review is due"""
+        if not self.due_date:
+            return 0.0
+        now = datetime.now(timezone.utc)
+        delta = self.due_date - now
+        return delta.total_seconds() / (24 * 3600)  # Convert seconds to days
+
+    @property
+    def state_name(self) -> str:
+        """Get a human-readable name for the card's state"""
+        state_map = {
+            State.Learning.value: 'Learning',
+            State.Review.value: 'Review',
+            State.Relearning.value: 'Relearning'
+        }
+        return state_map.get(self.state, 'New')  # Default to 'New' for unrecognized states
 
     def save(self):
         db = get_db()
@@ -122,10 +141,12 @@ class FSRSCard:
 
     @classmethod
     def get_new_cards(cls, user_id: str, limit: int = 10) -> List['FSRSCard']:
+        """Get cards that are in the Learning state and haven't been reviewed yet"""
         db = get_db()
         cursor = db.fsrs_cards.find({
             'user_id': ObjectId(user_id),
-            'state': State.New.value
+            'state': State.Learning.value,
+            'last_review': None  # Cards that haven't been reviewed yet
         }).limit(limit)
         return [cls._from_dict(card_data) for card_data in cursor]
 
@@ -174,3 +195,99 @@ class FSRSCard:
             state=card_data['state'],
             last_review=last_review
         )
+
+    @staticmethod
+    def convert_difficulty_to_fsrs(db_difficulty: int) -> float:
+        """
+        Convert database difficulty (1-5) to FSRS difficulty scale
+        1 = Very Easy   -> 1.5
+        2 = Easy        -> 2.0
+        3 = Medium      -> 2.5
+        4 = Hard        -> 3.0
+        5 = Very Hard   -> 3.5
+        """
+        return 1.5 + (db_difficulty - 1) * 0.5
+
+    @staticmethod
+    def convert_difficulty_to_db(fsrs_difficulty: float) -> int:
+        """Convert FSRS difficulty back to database scale (1-5)"""
+        db_difficulty = round(((fsrs_difficulty - 1.5) / 0.5) + 1)
+        return max(1, min(5, db_difficulty))  # Clamp between 1-5
+
+    def initialize_from_question(self, question_data: dict):
+        """Initialize card difficulty from question data"""
+        if 'difficulty' in question_data:
+            self.difficulty = self.convert_difficulty_to_fsrs(question_data['difficulty'])
+        return self
+
+    @classmethod
+    def get_cards_with_context(cls, user_id: str, limit: int = 20) -> List[tuple['FSRSCard', dict]]:
+        """Get due cards along with their question data"""
+        db = get_db()
+        now = datetime.now(timezone.utc)
+        
+        # First get the due cards
+        cursor = db.fsrs_cards.find({
+            'user_id': ObjectId(user_id),
+            'due_date': {'$lte': now}
+        }).sort('due_date', 1).limit(limit)
+        
+        cards = [cls._from_dict(card_data) for card_data in cursor]
+        
+        # Batch fetch questions
+        question_ids = [ObjectId(card.question_id) for card in cards]
+        questions = {
+            str(q['_id']): q 
+            for q in db.questions.find({'_id': {'$in': question_ids}})
+        }
+        
+        return [(card, questions.get(card.question_id, {})) for card in cards]
+
+    def calculate_performance_rating(
+        self,
+        is_correct: bool,
+        response_time: float,
+        question_difficulty: int,
+        consecutive_correct: int = 0
+    ) -> Rating:
+        """
+        Calculate FSRS rating based on performance metrics
+        
+        Args:
+            is_correct: Whether the answer was correct
+            response_time: Time taken to answer in seconds
+            question_difficulty: Question's difficulty (1-5)
+            consecutive_correct: Number of consecutive correct answers
+        """
+        if not is_correct:
+            return Rating.Again
+            
+        # Base time expectations based on difficulty
+        expected_time = {
+            1: 10,  # Very Easy: 10 seconds
+            2: 20,  # Easy: 20 seconds
+            3: 30,  # Medium: 30 seconds
+            4: 45,  # Hard: 45 seconds
+            5: 60   # Very Hard: 60 seconds
+        }.get(question_difficulty, 30)
+        
+        # Calculate time factor (how fast compared to expected)
+        time_factor = response_time / expected_time
+        
+        # Apply difficulty adjustment
+        difficulty_multiplier = 1 + (question_difficulty - 3) * 0.2
+        
+        # Consider consecutive correct answers
+        consistency_bonus = min(consecutive_correct * 0.1, 0.3)
+        
+        # Calculate final score
+        final_score = time_factor * difficulty_multiplier * (1 - consistency_bonus)
+        
+        # Convert to rating
+        if final_score <= 0.6:
+            return Rating.Easy
+        elif final_score <= 1.0:
+            return Rating.Good
+        elif final_score <= 1.5:
+            return Rating.Hard
+        return Rating.Again

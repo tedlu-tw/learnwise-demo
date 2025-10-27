@@ -9,10 +9,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from marshmallow import Schema, fields, validate, ValidationError
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import re
-from fsrs import State
+from fsrs import State, Rating
 from utils.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -199,6 +199,11 @@ def next_question():
     # Log full question document for debugging
     logger.info(f"Selected question document fields: {list(next_q.keys())}")
     
+    # Convert correct_answer to correct_indices if needed
+    correct_indices = next_q.get('correct_answer', [])
+    if not isinstance(correct_indices, list):
+        correct_indices = [correct_indices] if correct_indices is not None else []
+    
     question = {
         'id': str(next_q['_id']),
         'text': next_q.get('question_text') or next_q.get('text'),
@@ -208,7 +213,7 @@ def next_question():
         'explanation': next_q.get('explanation', None),
         'is_review': is_review,
         'type': next_q.get('type', 'single'),  # Add type field with default as single
-        'correct_answer': next_q.get('correct_answer', [])  # Add correct_answer array
+        'correct_indices': correct_indices  # Use consistent field name with submit endpoint
     }
     
     # Validate question data before returning
@@ -342,158 +347,157 @@ def get_progress_summary():
         logger.error(f"Error in progress-summary: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+class AnswerSubmissionSchema(Schema):
+    session_id = fields.String(required=True)
+    question_id = fields.String(required=True)
+    answer_indices = fields.List(fields.Integer(), required=True)
+    response_time = fields.Float(required=True, validate=validate.Range(min=0))
+
 @lessons_bp.route('/submit', methods=['POST'])
 @jwt_required()
+@log_errors
 def submit_answer():
+    """Process answer submission with FSRS integration"""
     try:
-        data = request.get_json()
-        session_id = data.get('session_id')
-        question_id = data.get('question_id')
-        answer_indices = data.get('answer_indices', [])  # Now expects an array
-        rating = data.get('rating')  # Accept FSRS rating from frontend
-        
-        logger.info(f"Submit answer - session: {session_id}, question: {question_id}, answer: {answer_indices}")
-        
-        if not all([session_id, question_id]):
-            logger.error("Missing required fields in submit answer")
-            return jsonify({'error': 'Missing required fields'}), 400
+        # Validate input
+        schema = AnswerSubmissionSchema()
+        try:
+            data = schema.load(request.get_json())
+        except ValidationError as err:
+            logger.error(f"Validation error in submit_answer: {err.messages}")
+            return jsonify({'error': 'Validation failed', 'details': err.messages}), 400
 
-        db = Question.get_db() if hasattr(Question, 'get_db') else None
-        if db is None:
-            from utils.database import get_db
-            db = get_db()
-            
-    except Exception as e:
-        logger.error(f"Error in submit_answer initialization: {str(e)}", exc_info=True)
-        return jsonify({'error': 'Internal server error during initialization'}), 500
-    if db is None:
-        from utils.database import get_db
+        user_id = get_jwt_identity()
+        session_id = data['session_id']
+        question_id = data['question_id']
+        answer_indices = data['answer_indices']
+        response_time = data['response_time']
+
+        # Get the question and session
         db = get_db()
-        
-    session = db.lesson_sessions.find_one({'session_id': session_id})
-    if not session:
-        return jsonify({'error': 'Session not found'}), 404
-        
-    user_id = session['user_id']
-    question = db.questions.find_one({'_id': ObjectId(question_id)})
-    if not question:
-        return jsonify({'error': 'Question not found'}), 404
+        question = db.questions.find_one({'_id': ObjectId(question_id)})
+        session = db.lesson_sessions.find_one({'session_id': session_id})
 
-    is_correct = False
-    correct_indices = question.get('correct_answer')
-    options = question.get('options', [])
-    
-    # Ensure correct_indices is always a list
-    if not isinstance(correct_indices, list):
-        correct_indices = [correct_indices]
+        if not question or not session:
+            logger.error(f"Question or session not found - question_id: {question_id}, session_id: {session_id}")
+            return jsonify({'error': 'Question or session not found'}), 404
+
+        # Validate answer
+        correct_indices = question.get('correct_answer', [])
+        if not isinstance(correct_indices, list):
+            correct_indices = [correct_indices] if correct_indices is not None else []
+        is_correct = sorted(answer_indices) == sorted(correct_indices)
         
-    # Log received data for debugging
-    logger.info(f"Received answer data: session_id={session_id}, question_id={question_id}, answer_indices={answer_indices}")
-    logger.info(f"Question data: correct_indices={correct_indices}, options={len(options) if options else 0}")
-    
-    # Validate answer indices
-    try:
-        answer_indices = [int(idx) for idx in answer_indices]
-    except (TypeError, ValueError):
-        logger.error(f"Invalid answer indices: {answer_indices}")
-        return jsonify({'error': 'Invalid answer indices'}), 400
+        # Get or create FSRS card
+        card = FSRSHelper.ensure_card(user_id, question_id)
+        if not card:
+            logger.error(f"Failed to create/get FSRS card for user {user_id}, question {question_id}")
+            return jsonify({'error': 'Internal server error'}), 500
+
+        # Get user stats for streak
+        user_stats = db.users.find_one(
+            {'_id': ObjectId(user_id)},
+            {'stats': 1}
+        ) or {'stats': {}}
         
-    # Validate indices are within bounds
-    if not options:
-        logger.error(f"No options found for question {question_id}")
-        return jsonify({'error': 'Question has no options'}), 400
+        streak = user_stats.get('stats', {}).get('current_streak', 0)
         
-    for idx in answer_indices:
-        if idx < 0 or idx >= len(options):
-            logger.error(f"Answer index {idx} out of range [0, {len(options)-1}]")
-            return jsonify({'error': 'Answer index out of range'}), 400
-            
-    for idx in correct_indices:
-        if idx < 0 or idx >= len(options):
-            logger.error(f"Correct index {idx} out of range [0, {len(options)-1}]")
-            debug_info = {
-                'question_id': question_id,
-                'options': options,
-                'correct_indices': correct_indices,
-                'question_text': question.get('question_text')
+        # Review card with performance data
+        helper = FSRSHelper()
+        performance_data = {
+            'is_correct': is_correct,
+            'response_time': response_time,
+            'question_difficulty': question.get('difficulty', 3),
+            'consecutive_correct': streak if is_correct else 0
+        }
+        
+        updated_card, review_log = helper.review_card(
+            card=card,
+            performance_data=performance_data,
+            question_data=question
+        )
+
+        # Update session
+        db.sessions.update_one(
+            {'session_id': session_id},
+            {
+                '$push': {
+                    'used_questions': question_id,
+                    'answers': {
+                        'question_id': question_id,
+                        'answer': answer_indices,
+                        'correct': is_correct,
+                        'response_time': response_time,
+                        'timestamp': datetime.now(timezone.utc)
+                    }
+                },
+                '$set': {
+                    'last_answer_time': datetime.now(timezone.utc),
+                    'last_answer_correct': is_correct
+                }
             }
-            return jsonify({'error': 'Correct answer index out of range', 'debug': debug_info}), 400
-            
-    # Check if answer is correct (all correct answers selected and no incorrect ones)
-    is_correct = (set(answer_indices) == set(correct_indices))
-    
-    # Update user stats
-    update = {
-        '$inc': {
-            'total_questions_answered': 1,
-            'correct_answers': 1 if is_correct else 0
-        },
-        '$addToSet': {'seen_question_ids': ObjectId(question_id)}
-    }
-    db.users.update_one(
-        {'_id': ObjectId(user_id)}, 
-        update
-    )
-    
-    # --- FSRS integration: update card state ---
-    from fsrs import Rating
-    # Accept nuanced FSRS rating from frontend
-    if rating is not None:
-        if isinstance(rating, int):
-            fsrs_rating = Rating(rating)
-        elif isinstance(rating, str):
-            rating_map = {
-                'Again': Rating.Again,
-                'Hard': Rating.Hard,
-                'Good': Rating.Good,
-                'Easy': Rating.Easy
+        )
+
+        # Initialize user stats if they don't exist
+        db.users.update_one(
+            {'_id': ObjectId(user_id), 'stats': {'$exists': False}},
+            {'$set': {'stats': {
+                'total_questions': 0,
+                'correct_answers': 0,
+                'current_streak': 0
+            }}}
+        )
+
+        # Update user stats - handle streak properly
+        if is_correct:
+            update = {
+                '$inc': {
+                    'stats.total_questions': 1,
+                    'stats.correct_answers': 1,
+                    'stats.current_streak': 1
+                }
             }
-            fsrs_rating = rating_map.get(rating, Rating.Good)
         else:
-            fsrs_rating = Rating.Good
-    else:
-        fsrs_rating = Rating.Good if is_correct else Rating.Again
-        
-    # Update FSRS card
-    card = FSRSHelper.update_card(user_id, question_id, fsrs_rating)
-    
-    # Store answer history in lesson_reports with atomic update
-    report_id = db.lesson_reports.insert_one({
-        'user_id': ObjectId(user_id),
-        'session_id': session_id,
-        'question_id': ObjectId(question_id),
-        'response': answer_indices,
-        'is_correct': bool(is_correct),
-        'rating': fsrs_rating.value,
-        'fsrs_state': card.state if card else None,
-        'timestamp': datetime.utcnow(),
-        'options': options,
-        'correct_indices': correct_indices,
-        'type': question.get('type', 'single')
-    }).inserted_id
-    
-    # Update user stats atomically
-    db.users.update_one(
-        {'_id': ObjectId(user_id)},
-        {
-            '$inc': {
-                'stats.total_answered': 1,
-                'stats.total_correct': 1 if is_correct else 0
-            },
-            '$set': {
-                'stats.last_answer_at': datetime.utcnow(),
-                'stats.last_answer_correct': is_correct
+            update = {
+                '$inc': {
+                    'stats.total_questions': 1
+                },
+                '$set': {
+                    'stats.current_streak': 0  # Reset streak on incorrect answer
+                }
             }
-        },
-        upsert=True
-    )
-    
-    # Get the explanation without duplicating correct answers
-    explanation = question.get('explanation', '')
-            
-    return jsonify({
-        'correct': is_correct, 
-        'correct_indices': correct_indices, 
-        'explanation': explanation, 
-        'options': options
-    })
+
+        db.users.update_one(
+            {'_id': ObjectId(user_id)},
+            update
+        )
+
+        # Prepare response with learning feedback
+        next_review_delta = round(updated_card.days_until_due, 1) if updated_card.due_date else 0.0
+        feedback_message = {
+            Rating.Again: "Keep practicing! You'll get it next time.",
+            Rating.Hard: "Good effort! This one needs more review.",
+            Rating.Good: "Well done! You're making progress.",
+            Rating.Easy: "Excellent! You've mastered this concept."
+        }.get(review_log.rating, "Keep going!")
+
+        return jsonify({
+            'correct': is_correct,
+            'feedback': {
+                'message': feedback_message,
+                'next_review': str(updated_card.due_date) if updated_card.due_date else None,
+                'days_until_review': round(next_review_delta, 1),
+                'state': updated_card.state_name,
+                'stability': round(updated_card.stability, 2),
+                'difficulty': FSRSCard.convert_difficulty_to_db(updated_card.difficulty),
+                'correct': is_correct,  # Add correct flag to feedback object
+                'correct_indices': correct_indices  # Rename from correct_answer to match frontend
+            },
+            'selected_indices': answer_indices,  # Rename from selected_answer to match frontend
+            'streak': streak + 1 if is_correct else 0,
+            'explanation': question.get('explanation', '')  # Include question explanation if available
+        })
+
+    except Exception as e:
+        logger.error(f"Error in submit_answer: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
