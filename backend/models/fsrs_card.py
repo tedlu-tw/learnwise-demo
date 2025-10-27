@@ -39,7 +39,8 @@ class FSRSCard:
         self.scheduled_days = scheduled_days or 0
         self.reps = reps or 0
         self.lapses = lapses or 0
-        self.state = state or State.Learning.value
+        # Default to Learning state for new cards
+        self.state = state if state is not None else State.Learning.value
         self.last_review = last_review
         self.created_at = datetime.now(timezone.utc)
         self.updated_at = datetime.now(timezone.utc)

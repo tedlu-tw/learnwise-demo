@@ -1,4 +1,4 @@
-from fsrs import Scheduler, Card, Rating
+from fsrs import Scheduler, Card, Rating, State
 from datetime import datetime, timezone
 from models.fsrs_card import FSRSCard
 from typing import Optional
@@ -11,23 +11,24 @@ class FSRSHelper:
         self.scheduler = Scheduler(**user_parameters) if user_parameters else Scheduler()
 
     @staticmethod
-    def ensure_card(user_id: str, question_id: str) -> FSRSCard:
+    def ensure_card(user_id: str, question_id: str, is_new: bool = True) -> FSRSCard:
         """Ensure an FSRSCard exists for a user/question, create if missing."""
         card = FSRSCard.get_by_user_and_question(user_id, question_id)
         if not card:
             card = FSRSCard(user_id=user_id, question_id=question_id)
+            # For new cards, we start in Learning state
+            # For review cards, we'll let FSRS handle the state transitions
             card.save()
         return card
 
     @staticmethod
-    def update_card(user_id: str, question_id: str, is_correct: bool):
-        """Update FSRS card state based on answer correctness."""
+    def update_card(user_id: str, question_id: str, rating: Rating) -> FSRSCard:
+        """Update FSRS card state based on user rating."""
         card = FSRSHelper.ensure_card(user_id, question_id)
-        # For now, map correct/incorrect to FSRS rating (3=Good, 1=Again)
-        rating = 3 if is_correct else 1
         helper = FSRSHelper()
-        helper.review_card(card, rating)
-        return card
+        # Let FSRS handle the state transitions based on the rating
+        updated_card, _ = helper.review_card(card, rating)
+        return updated_card
 
     @staticmethod
     def get_due_cards(user_id: str, skills=None, limit: int = 20):

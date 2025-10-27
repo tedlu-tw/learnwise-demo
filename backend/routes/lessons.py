@@ -12,6 +12,7 @@ from bson import ObjectId
 from datetime import datetime
 import logging
 import re
+from fsrs import State
 
 logger = logging.getLogger(__name__)
 lessons_bp = Blueprint('lessons', __name__)
@@ -156,6 +157,12 @@ def next_question():
         next_q = db.questions.find_one({'_id': ObjectId(next_q_id)})
         
         if next_q:
+            user_id = session['user_id']
+            # Check if user has seen this question before
+            existing_card = FSRSCard.get_by_user_and_question(user_id, next_q_id)
+            # A question is considered for review if it exists and has been reviewed before
+            is_review = existing_card is not None and existing_card.last_review is not None
+
             # Update session state
             db.lesson_sessions.update_one(
                 {'session_id': session_id},
@@ -165,8 +172,10 @@ def next_question():
                 }
             )
             
-            is_review = False  # We'll handle review later
-            logger.info(f"Using next question from available pool: {next_q_id}")
+            logger.info(f"Using {'review' if is_review else 'new'} question: {next_q_id}")
+            
+            # Create or get FSRS card
+            FSRSHelper.ensure_card(user_id, str(next_q['_id']))
         else:
             logger.error(f"Question {next_q_id} not found in database")
             return jsonify({'error': 'Question not found'}), 404
@@ -323,9 +332,20 @@ def submit_answer():
     # Check if answer is correct (all correct answers selected and no incorrect ones)
     is_correct = (set(answer_indices) == set(correct_indices))
     
+    # Update user stats
     if is_correct:
-        db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'correct_answers': 1}})
-    db.users.update_one({'_id': ObjectId(user_id)}, {'$inc': {'total_questions_answered': 1}})
+        db.users.update_one(
+            {'_id': ObjectId(user_id)}, 
+            {
+                '$inc': {'correct_answers': 1},
+                '$addToSet': {'seen_question_ids': ObjectId(question_id)}
+            }
+        )
+    else:
+        db.users.update_one(
+            {'_id': ObjectId(user_id)}, 
+            {'$inc': {'total_questions_answered': 1}}
+        )
     
     # --- FSRS integration: update card state ---
     from fsrs import Rating
@@ -346,7 +366,8 @@ def submit_answer():
     else:
         fsrs_rating = Rating.Good if is_correct else Rating.Again
         
-    FSRSHelper.update_card(user_id, question_id, fsrs_rating)
+    # Update FSRS card
+    card = FSRSHelper.update_card(user_id, question_id, fsrs_rating)
     
     # Store answer history in lesson_reports
     db.lesson_reports.insert_one({
@@ -356,8 +377,10 @@ def submit_answer():
         'response': answer_indices,  # Store full array of answers
         'is_correct': is_correct,
         'rating': fsrs_rating.value,
+        'fsrs_state': card.state if card else None,
         'timestamp': datetime.utcnow(),
-        'options': options
+        'options': options,
+        'type': question.get('type', 'single')
     })
     
     # Get the explanation without duplicating correct answers

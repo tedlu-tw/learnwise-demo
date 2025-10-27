@@ -83,6 +83,57 @@ class User:
         db = get_db()
         db.users.delete_many({'username': {'$regex': 'test_'}})
 
+    def mark_question_seen(self, question_id):
+        """Mark a question as seen only if it's correctly answered."""
+        db = get_db()
+        db.users.update_one(
+            {'_id': ObjectId(self.id)},
+            {'$addToSet': {'seen_question_ids': ObjectId(question_id)}}
+        )
+        self.seen_question_ids.append(str(question_id))
+        
+    def reset_question_tracking(self):
+        """Reset question tracking for this user."""
+        db = get_db()
+        db.users.update_one(
+            {'_id': ObjectId(self.id)},
+            {
+                '$set': {
+                    'seen_question_ids': [],
+                    'total_questions_answered': 0,
+                    'correct_answers': 0
+                }
+            }
+        )
+        self.seen_question_ids = []
+        self.total_questions_answered = 0
+        self.correct_answers = 0
+
+    def get_question_stats(self):
+        """Get question tracking stats for this user."""
+        return {
+            'total_questions': self.total_questions_answered,
+            'correct_questions': self.correct_answers,
+            'seen_questions': len(self.seen_question_ids),
+            'accuracy': round((self.correct_answers / self.total_questions_answered * 100), 2) if self.total_questions_answered > 0 else 0
+        }
+
+    def get_completion_status(self):
+        """Check completion status for questions in user's selected skills."""
+        db = get_db()
+        # Get total questions in user's selected skills
+        total_questions = db.questions.count_documents({
+            'category': {'$in': [s.lower() for s in self.selected_skills]}
+        })
+        # Get correctly answered questions (seen questions are only those answered correctly)
+        completed_questions = len(self.seen_question_ids)
+        
+        return {
+            'total_available': total_questions,
+            'completed': completed_questions,
+            'completion_rate': round((completed_questions / total_questions * 100), 2) if total_questions > 0 else 0
+        }
+
     @staticmethod
     def _from_dict(data):
         return User(
