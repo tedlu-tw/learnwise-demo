@@ -3,6 +3,16 @@
         <Nav :showLogin="false" activeItem="dashboard" />
         <div class="w-full p-6">
             <div class="max-w-7xl mx-auto">
+                <!-- Welcome Message -->
+                <div class="mb-8">
+                    <h1 class="text-2xl font-bold text-gray-800">
+                        歡迎回來，{{ user?.username || '同學' }}！
+                    </h1>
+                    <p class="text-gray-600 mt-2">
+                        {{ getGreetingMessage() }}
+                    </p>
+                </div>
+
                 <div v-if="loading" class="flex justify-center items-center min-h-[200px]">
                     <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
@@ -92,10 +102,13 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import { useLessonStore } from '@/stores/lesson'
+import { useAuthStore } from '@/stores/auth'
 import { lessonService } from '@/services/lesson.service'
 import Nav from '@/components/common/Nav.vue'
 
 const lesson = useLessonStore()
+const auth = useAuthStore()
+const user = auth.currentUser
 const loading = ref(true)
 const refreshing = ref(false)
 const stats = ref({
@@ -170,6 +183,19 @@ const loadDashboardData = async () => {
         console.error('Error loading dashboard data:', error)
     } finally {
         loading.value = false
+    }
+}
+
+const getGreetingMessage = () => {
+    const hour = new Date().getHours()
+    if (hour >= 5 && hour < 12) {
+        return '早安！新的一天開始了，讓我們一起學習吧。'
+    } else if (hour >= 12 && hour < 18) {
+        return '午安！保持專注，繼續努力！'
+    } else if (hour >= 18 && hour < 22) {
+        return '晚安！複習一下今天學到的知識吧。'
+    } else {
+        return '夜深了，注意休息，明天繼續加油！'
     }
 }
 
