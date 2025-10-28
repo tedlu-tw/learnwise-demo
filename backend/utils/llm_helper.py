@@ -34,44 +34,59 @@ class LLMHelper:
                     "temperature": 0.7,
                     "system_prompt": """你是一位專業的數學老師，負責指導學生理解他們的錯誤並提供詳細的解釋。
 
-請遵循以下格式要求：
+請嚴格遵循以下排版與數學格式規範：
 
 1. 使用繁體中文回答。
 
-2. 將解釋分成清楚的段落，每個段落之間必須用空行分隔。
+2. 段落與標題分隔：
+   - 每個步驟必須有明確的標題，標題必須使用粗體：**步驟N：標題**。
+   - 標題必須獨立成行，且「標題前後都要各留一個空行」。
+   - 其餘段落之間也必須以一個空行分隔。
 
-3. 所有數學符號和公式必須使用 LaTeX 格式，嚴格遵循以下規則：
-   - 所有公式都使用單個 $ 符號作為行內公式，如：$x + y = 10$
-   - 即使是較長或複雜的公式，也要使用行內格式，如：$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$
-   - 座標點必須用括號並在同一個 $ 內，如：$(3, 7)$
-   - 變數名使用 \\_，如：$x_{\\text{center}}$
-   - 分數使用 \\frac{分子}{分母}，如：$\\frac{1}{2}$
-   - 乘法使用 \\times 或 \\cdot，如：$2 \\times 3$
-   - 次方使用 ^，如：$x^2$
-   - 根號使用 \\sqrt{}，如：$\\sqrt{16}$
-   - 集合使用 \\mathbb{}，如：$\\mathbb{R}$
-   - 不等號使用 \\lt, \\gt, \\leq, \\geq，如：$x \\lt 0$
-   - 希臘字母使用 \\alpha, \\beta 等，如：$\\alpha + \\beta$
-   - 三角函數使用 \\sin, \\cos 等，如：$\\sin(x)$
-   - 方程組使用 \\begin{cases} 和 \\end{cases}，如：$\\begin{cases} x + y = 1 \\\\ x - y = 2 \\end{cases}$
+3. 列表格式（重要）：
+   - 務必以「條列式」呈現內容（每個重點一行）。
+   - 列表項以 * 或 - 作為項目符號，示例：
+     * 這是一個重點（行內公式如 $x^2+y^2=r^2$）
+     * 這是另一個重點（保持行內 LaTeX）
+   - 不要使用編號清單（1. 2. 3.），也不要使用多層巢狀清單。
 
-4. 使用**粗體文字**來標示重要觀念或關鍵字。
+4. 所有數學符號和公式必須使用 LaTeX 行內格式：
+   - 一律使用單個 $ 作為行內公式，例如：$x + y = 10$。
+   - 不要使用 $$ 或 \\[...\\]，長式公式也請用行內 $...$。
+   - 座標點置於同一個 $ 中，如：$(3, 7)$。
+   - 下標與上標：$x_{i}$、$x^{2}$；分數：$\\frac{a}{b}$；根號：$\\sqrt{n}$。
+   - 集合：$\\mathbb{R}$；不等號：$\\lt, \\gt, \\leq, \\geq$；三角函數：$\\sin, \\cos$。
+   - 方程組：$\\begin{cases} x+y=1 \\\\ x-y=2 \\end{cases}$（仍置於單一行內 $ 中）。
 
-5. 每個步驟都要有明確的標題，使用**步驟標題**格式。
+5. 文字強調：
+   - 關鍵字可使用 **粗體** 強調（請勿使用其他 HTML 標籤）。
 
-6. 每個步驟之間必須用空行分隔。
+6. 禁止事項：
+   - 禁止使用雙 $$、\\[...\\]、HTML 標籤、或任何非行內 $...$ 的數學格式。
 
-7. 在句子中提到數學符號時，一定要使用 LaTeX 格式，例如：「在圓 $C$ 和直線 $L$ 中...」。
-
-範例格式：
+範例結構（務必比照空行與條列）：
 
 **步驟一：理解題目**
 
-在這個問題中，我們需要找到點 $(x_0, y_0)$ 滿足方程式 $ax + by = c$ 其中 $a,b,c \\in \\mathbb{R}$。
+* 說明題目的已知條件與目標（保持行內公式，如 $f(x)$、$(a, b)$）。
+* 指出可能造成混淆之處。
 
-根據方程組：$\\begin{cases} x_{\\text{center}} = \\frac{x_1 + x_2}{2} \\\\ y_{\\text{center}} = \\frac{y_1 + y_2}{2} \\end{cases}$
+**步驟二：正確的解題思路**
 
-請嚴格按照以上格式要求撰寫解答，切勿使用雙 $$ 符號或 \\[...\\] 格式。每段文字之間都必須有空行。""",
+* 依序列出解題步驟與理由，搭配行內 LaTeX（例如 $\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$）。
+* 說明關鍵性質或定理的使用方式。
+
+**步驟三：錯誤分析**
+
+* 為何原本選擇不正確。
+* 常見迷思與澄清。
+
+**步驟四：學習重點**
+
+* 總結重要觀念（條列）。
+* 類題提示（條列）。
+
+請嚴格按照以上格式要求撰寫解答，切勿使用雙 $$ 或 \\[...\\] 格式。每段文字與每個步驟標題前後都必須有空行。""",
                     "presence_penalty": 1.15,
                 }
             ):
@@ -86,55 +101,50 @@ class LLMHelper:
 
     def _process_explanation(self, text: str) -> str:
         """Process the explanation to ensure proper formatting."""
-        # Split into lines and clean up
+        # Normalize newlines and strip trailing spaces
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
         lines = text.split('\n')
-        processed_lines = []
-        in_math_block = False
-        math_buffer = []
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Handle empty lines
-            if not line:
-                if math_buffer:
-                    # Convert math block to inline math before adding
-                    math_content = ' '.join(math_buffer).strip()
-                    if math_content.startswith('$$') and math_content.endswith('$$'):
-                        math_content = math_content.replace('$$', '$')
-                    processed_lines.append(math_content)
-                    math_buffer = []
-                    in_math_block = False
-                else:
-                    processed_lines.append('')
-                continue
-            
-            # Convert any block math to inline math
+        processed_lines: List[str] = []
+
+        for i, raw in enumerate(lines):
+            line = raw.strip()
+
+            # Normalize block math to inline math
             if '$$' in line:
                 line = line.replace('$$', '$')
             if '\\[' in line or '\\]' in line:
                 line = line.replace('\\[', '$').replace('\\]', '$')
-            
-            # Handle remaining lines
-            if '$' in line:
-                # Fix coordinate pairs
-                line = line.replace('$(', ' $(').replace(')$', ')$ ')
-                # Add spaces around inline math
-                line = line.replace('$', ' $ ').replace('  $  ', ' $ ')
-                # Clean up excess spaces
-                line = ' '.join(line.split())
-            
-            # Add proper step formatting
+
+            # Insert blank line before step headers (if previous non-empty exists)
             if line.startswith('**步驟'):
-                line = f"\n{line}" if processed_lines else line
-            
+                if processed_lines and processed_lines[-1] != '':
+                    processed_lines.append('')
+                processed_lines.append(line)
+                # Ensure a blank line after the header as well
+                processed_lines.append('')
+                continue
+
+            # Convert lines starting with bullets to bullet items (keep as-is; frontend renders lists)
+            if line.startswith('* ') or line.startswith('- '):
+                processed_lines.append(line)
+                continue
+
+            # Add spaces around inline math markers to avoid sticking to CJK words
+            if '$' in line:
+                line = line.replace('$(', ' $(').replace(')$', ')$ ')
+                line = line.replace('$', ' $ ')  # simple spacing
+                line = ' '.join(line.split())
+
             processed_lines.append(line)
-        
-        # Join lines and clean up
-        text = '\n'.join(processed_lines)
-        # Remove multiple consecutive empty lines
-        text = '\n'.join(line for line, _ in itertools.groupby(text.split('\n')))
-        return text
+
+        # Collapse multiple blank lines to single
+        compact: List[str] = []
+        for s in processed_lines:
+            if s == '' and (not compact or compact[-1] == ''):
+                continue
+            compact.append(s)
+
+        return '\n'.join(compact).strip()
 
     def _create_prompt(self, data: Dict[str, Any]) -> str:
         """Create a structured prompt for the LLM."""
