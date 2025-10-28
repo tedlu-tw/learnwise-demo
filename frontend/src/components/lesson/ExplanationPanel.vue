@@ -95,31 +95,10 @@ const isValid = computed(() => {
 
 // Process inline math and bold text in a string
 function processInlineMath(text) {
-  // First handle bold text
-  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  // Remove markdown bold markers but keep content
+  text = text.replace(/\*\*(.*?)\*\*/g, '$1')
   
-  // Handle bullet points
-  if (text.match(/^\*/m)) {
-    const bulletPoints = text.split('\n').map(line => {
-      const bulletMatch = line.match(/^\*\s+(.*)$/)
-      if (bulletMatch) {
-        // Process math in bullet points
-        let content = bulletMatch[1]
-        content = content.replace(/\$([^$]+?)\$/g, (match) => {
-          return `<math-text text="${match}"></math-text>`
-        })
-        return `<li>${content}</li>`
-      }
-      return line
-    }).join('\n')
-    text = `<ul>${bulletPoints}</ul>`
-    return text
-  }
-
-  // Process regular text with math expressions
-  text = text.replace(/\$([^$]+?)\$/g, (match) => {
-    return `<math-text text="${match}"></math-text>`
-  })
+  // Do NOT inject HTML or custom tags; keep $...$ intact for MathDisplay
   return text
 }
 
