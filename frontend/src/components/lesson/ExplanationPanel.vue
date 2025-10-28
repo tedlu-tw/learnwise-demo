@@ -34,6 +34,8 @@
             </div>
           </template>
         </div>
+        <!-- Disclaimer -->
+        <div class="mt-2 text-xs text-gray-500 italic">AI 生成結果僅供參考。</div>
       </div>
 
       <div v-else-if="error" class="mt-4 text-red-600 p-4 bg-red-50 rounded-lg flex items-center justify-between">
