@@ -1,6 +1,9 @@
 import api from './axios'
 
 class LessonService {
+  constructor() {
+    this.api = api
+  }
   async startLesson(data) {
     try {
       if (!data.skill_ids || data.skill_ids.length === 0) {
@@ -45,10 +48,18 @@ class LessonService {
         return { completed: true }
       }
 
-      // Validate question data
       if (!res.data.question || !res.data.question.text || !res.data.question.options) {
         console.error('Invalid question data:', res.data)
         throw new Error('Invalid question data received from server')
+      }
+
+      // Normalize the question ID and ensure it's a string
+      const question = res.data.question
+      question.id = String(question._id || question.id || '')
+      console.log('Normalized question ID:', question.id)
+
+      if (!question.id) {
+        throw new Error('Question ID is missing')
       }
 
       // Ensure question type is set
@@ -137,6 +148,24 @@ class LessonService {
     } catch (error) {
       console.error('Error getting due count:', error.response?.data || error)
       throw error
+    }
+  }
+
+  async getExplanation(questionId, selectedIndices) {
+    try {
+      console.log('Requesting explanation for question:', questionId, 'with selected indices:', selectedIndices)
+      const res = await api.post('/lessons/explain', {
+        question_id: questionId,
+        selected_indices: selectedIndices
+      })
+      console.log('Explanation response:', res.data)
+      if (!res.data.explanation) {
+        throw new Error('No explanation received from server')
+      }
+      return res.data
+    } catch (error) {
+      console.error('Error getting explanation:', error.response?.data || error)
+      throw new Error(error.response?.data?.message || error.message || '無法獲取解釋')
     }
   }
 }

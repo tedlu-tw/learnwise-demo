@@ -1,6 +1,17 @@
 import { defineStore } from 'pinia'
 import { lessonService } from '@/services/lesson.service'
 
+// Helper function to normalize question object
+function normalizeQuestion(question) {
+  if (!question) return null
+  return {
+    ...question,
+    id: question.id || question._id, // Ensure we always have an id field
+    correct_indices: question.correct_indices || question.correct_answer || [], // Support both field names
+    type: question.type || 'single' // Default to single choice if not specified
+  }
+}
+
 export const useLessonStore = defineStore('lesson', {
   state: () => ({
     currentSession: null,
@@ -65,7 +76,7 @@ export const useLessonStore = defineStore('lesson', {
           throw new Error('No question returned from server')
         }
         
-        this.currentQuestion = response.question
+        this.setCurrentQuestion(response.question)
         console.log('Question fetched:', this.currentQuestion)
         return this.currentQuestion
       } catch (error) {
@@ -75,6 +86,12 @@ export const useLessonStore = defineStore('lesson', {
       } finally {
         this.loading = false
       }
+    },
+
+    setCurrentQuestion(question) {
+      console.log('Setting current question:', question)
+      this.currentQuestion = normalizeQuestion(question)
+      console.log('Normalized current question:', this.currentQuestion)
     },
 
     async submitAnswer(questionId, answerArray) {

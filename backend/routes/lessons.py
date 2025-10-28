@@ -23,6 +23,10 @@ class LessonStartSchema(Schema):
     skill_ids = fields.List(fields.String(), required=True, validate=validate.Length(min=1, max=10))
     type = fields.String(required=True, validate=validate.OneOf(['initial', 'review', 'practice']))
 
+class ExplanationRequestSchema(Schema):
+    question_id = fields.String(required=True)
+    selected_indices = fields.List(fields.Integer(), required=True)
+
 @lessons_bp.route('/start', methods=['POST'])
 @limiter.limit("10 per minute")
 @jwt_required()
@@ -139,14 +143,6 @@ def next_question():
     available_questions = session.get('available_questions', [])
     used_questions = session.get('used_questions', [])
     
-    logger.info(f"Session found. Categories: {skill_ids}, Available: {len(available_questions)}, Used: {len(used_questions)}")
-    
-    # Log sample question to check schema
-    sample_question = db.questions.find_one({'category': {'$in': skill_ids}})
-    if sample_question:
-        logger.info(f"Sample question fields: {list(sample_question.keys())}")
-        logger.info(f"Sample question category: {sample_question.get('category')}")
-    
     # Check if we've used all available questions
     if not available_questions:
         logger.info("No more available questions - session complete")
@@ -167,62 +163,27 @@ def next_question():
             # Update session state
             db.lesson_sessions.update_one(
                 {'session_id': session_id},
-                {
-                    '$pop': {'available_questions': -1},  # Remove from front
-                    '$push': {'used_questions': next_q_id}
-                }
+                {'$pull': {'available_questions': next_q_id},
+                 '$push': {'used_questions': next_q_id}}
             )
+
+            # Convert ObjectId to string for the response
+            next_q['_id'] = str(next_q['_id'])
             
-            logger.info(f"Using {'review' if is_review else 'new'} question: {next_q_id}")
-            
-            # Create or get FSRS card
-            FSRSHelper.ensure_card(user_id, str(next_q['_id']))
+            # Return the question with all necessary fields
+            return jsonify({
+                'question': {
+                    **next_q,
+                    'id': next_q['_id'],  # Add both id and _id for compatibility
+                    'is_review': is_review,
+                }
+            })
         else:
             logger.error(f"Question {next_q_id} not found in database")
             return jsonify({'error': 'Question not found'}), 404
     else:
         logger.info("No more available questions")
         return jsonify({'message': 'Session complete'}), 200
-        
-        # Log the first question to debug category matching
-        if question_doc:
-            logger.info(f"Sample new question - category: {question_doc[0].get('category')}, id: {question_doc[0].get('_id')}")
-    
-    # Update seen_question_ids since this is a new question
-    db.users.update_one(
-        {'_id': ObjectId(session['user_id'])},
-        {'$addToSet': {'seen_question_ids': next_q['_id']}}
-    )
-    
-    # Ensure FSRS card exists for this question/user
-    FSRSHelper.ensure_card(session['user_id'], str(next_q['_id']))
-    # Log full question document for debugging
-    logger.info(f"Selected question document fields: {list(next_q.keys())}")
-    
-    # Convert correct_answer to correct_indices if needed
-    correct_indices = next_q.get('correct_answer', [])
-    if not isinstance(correct_indices, list):
-        correct_indices = [correct_indices] if correct_indices is not None else []
-    
-    question = {
-        'id': str(next_q['_id']),
-        'text': next_q.get('question_text') or next_q.get('text'),
-        'options': next_q.get('options', []),
-        'category': next_q.get('category'),  # Use consistent field name
-        'difficulty': next_q.get('difficulty_level', next_q.get('difficulty', None)),
-        'explanation': next_q.get('explanation', None),
-        'is_review': is_review,
-        'type': next_q.get('type', 'single'),  # Add type field with default as single
-        'correct_indices': correct_indices  # Use consistent field name with submit endpoint
-    }
-    
-    # Validate question data before returning
-    if not question['text'] or not question['options']:
-        logger.error(f"Invalid question data: {question}")
-        return jsonify({'error': 'Invalid question data'}), 500
-        
-    logger.info(f"Returning question: {question['id']} with {len(question['options'])} options")
-    return jsonify({'question': question})
 
 @lessons_bp.route('/due-count', methods=['GET'])
 @jwt_required()
@@ -500,4 +461,71 @@ def submit_answer():
 
     except Exception as e:
         logger.error(f"Error in submit_answer: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500
+
+@lessons_bp.route('/explain', methods=['POST'])
+@jwt_required()
+@log_errors
+def get_explanation():
+    """Get AI-generated explanation for a question attempt."""
+    try:
+        # Validate input
+        schema = ExplanationRequestSchema()
+        try:
+            data = schema.load(request.get_json())
+        except ValidationError as err:
+            logger.error(f"Validation error in get_explanation: {err.messages}")
+            return jsonify({'error': 'Validation failed', 'details': err.messages}), 400
+
+        db = get_db()
+        question = db.questions.find_one({'_id': ObjectId(data['question_id'])})
+        if not question:
+            return jsonify({'error': 'Question not found'}), 404
+
+        # Check cache first
+        cache_key = f"explanation:{data['question_id']}:{','.join(map(str, sorted(data['selected_indices'])))}"
+        cached = db.explanation_cache.find_one({'key': cache_key})
+        if cached and (datetime.now() - cached['created_at']).days < 30:  # Cache for 30 days
+            return jsonify({'explanation': cached['explanation']})
+
+        # Prepare data for LLM
+        correct_indices = question.get('correct_answer', [])
+        if not isinstance(correct_indices, list):
+            correct_indices = [correct_indices] if correct_indices is not None else []
+
+        question_data = {
+            'question_text': question.get('question_text') or question.get('text'),
+            'options': question.get('options', []),
+            'correct_indices': correct_indices,
+            'selected_indices': data['selected_indices'],
+            'is_correct': sorted(data['selected_indices']) == sorted(correct_indices)
+        }
+
+        # Generate explanation
+        from utils.llm_helper import LLMHelper
+        try:
+            llm = LLMHelper()
+            explanation = llm.generate_explanation(question_data)
+            if not explanation:
+                raise ValueError("LLM returned empty explanation")
+            
+            # Cache the result
+            db.explanation_cache.insert_one({
+                'key': cache_key,
+                'explanation': explanation,
+                'created_at': datetime.now(),
+                'question_id': data['question_id'],
+                'selected_indices': data['selected_indices']
+            })
+        except Exception as e:
+            logger.error(f"Error generating explanation: {str(e)}", exc_info=True)
+            return jsonify({
+                'error': 'Failed to generate explanation',
+                'message': str(e)
+            }), 500
+
+        return jsonify({'explanation': explanation})
+
+    except Exception as e:
+        logger.error(f"Error in get_explanation: {str(e)}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500

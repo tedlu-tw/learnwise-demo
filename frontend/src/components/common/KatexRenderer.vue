@@ -1,5 +1,12 @@
 <template>
-  <span ref="katexElement" class="katex-container"></span>
+  <span 
+    ref="katexElement" 
+    class="katex-container"
+    :class="{
+      'block text-center my-4': displayMode,
+      'inline-block align-middle mx-1': !displayMode
+    }"
+  ></span>
 </template>
 
 <script setup>
@@ -28,11 +35,12 @@ const renderKatex = () => {
   if (!katexElement.value || !props.expression) return
 
   try {
-    katex.render(props.expression, katexElement.value, {
+    katex.render(props.expression.trim(), katexElement.value, {
       displayMode: props.displayMode,
       throwOnError: props.throwOnError,
       strict: false,
-      trust: false
+      trust: true,
+      output: 'html'
     })
   } catch (error) {
     console.warn('KaTeX rendering error:', error)
@@ -50,7 +58,13 @@ watchEffect(() => {
 </script>
 
 <style scoped>
-.katex-container {
-  display: inline-block;
+.katex-container:not(.block) {
+  vertical-align: middle;
+}
+
+.katex {
+  font-size: 1.1em;
+  line-height: 1.2;
+  text-indent: 0;
 }
 </style>

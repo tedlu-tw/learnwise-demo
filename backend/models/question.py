@@ -2,12 +2,12 @@ from utils.database import get_db
 from bson import ObjectId
 
 class Question:
-    def __init__(self, id=None, type=None, text=None, options=None, correct_answer=None, category=None, difficulty=None, tags=None, sub_topic=None):
+    def __init__(self, id=None, type=None, text=None, options=None, correct_indices=None, category=None, difficulty=None, tags=None, sub_topic=None):
         self.id = id
         self.type = type or 'single'  # Default to single-choice
         self.text = text
         self.options = options or []
-        self.correct_answer = correct_answer if isinstance(correct_answer, list) else [correct_answer] if correct_answer is not None else []
+        self.correct_indices = correct_indices if isinstance(correct_indices, list) else [correct_indices] if correct_indices is not None else []
         self.category = category
         self.difficulty = difficulty if isinstance(difficulty, int) and 1 <= difficulty <= 5 else 1
         self.tags = tags or []
@@ -20,7 +20,7 @@ class Question:
             'type': 'single',
             'text': 'What is $2 + 2$?',
             'options': ['$3$', '$4$', '$5$', '$6$'],
-            'correct_answer': [1],
+            'correct_indices': [1],
             'category': '算術',
             'difficulty': 1,
             'tags': ['加法'],
@@ -37,12 +37,14 @@ class Question:
 
     @staticmethod
     def _from_dict(data):
+        # Support both correct_answer and correct_indices for backward compatibility
+        correct_indices = data.get('correct_indices') or data.get('correct_answer', [])
         return Question(
             id=str(data['_id']),
             type=data.get('type', 'single'),
             text=data.get('text'),
             options=data.get('options', []),
-            correct_answer=data.get('correct_answer', []),
+            correct_indices=correct_indices,
             category=data.get('category'),
             difficulty=data.get('difficulty', 1),
             tags=data.get('tags', []),
