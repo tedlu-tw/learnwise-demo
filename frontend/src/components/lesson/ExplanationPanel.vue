@@ -13,10 +13,19 @@
         <div class="prose prose-sm max-w-none bg-white p-4 rounded-lg shadow-sm">
           <template v-for="(section, index) in formattedExplanation" :key="index">
             <div v-if="section.type === 'step'" class="mb-6">
-              <h3 class="font-bold text-lg text-gray-800 mb-3">{{ section.title }}</h3>
+              <h3 class="font-bold text-lg text-gray-800 mb-3">
+                <MathDisplay :text="section.title" />
+              </h3>
               <div class="pl-4">
                 <template v-for="(content, contentIndex) in section.contents" :key="contentIndex">
-                  <MathDisplay :text="content.text" />
+                  <ul v-if="content.type === 'list'" class="list-disc ml-6 my-2">
+                    <li v-for="(item, i) in content.items" :key="i">
+                      <MathDisplay :text="item" />
+                    </li>
+                  </ul>
+                  <template v-else>
+                    <MathDisplay :text="content.text" />
+                  </template>
                 </template>
               </div>
             </div>
@@ -95,10 +104,7 @@ const isValid = computed(() => {
 
 // Process inline math and bold text in a string
 function processInlineMath(text) {
-  // Remove markdown bold markers but keep content
-  text = text.replace(/\*\*(.*?)\*\*/g, '$1')
-  
-  // Do NOT inject HTML or custom tags; keep $...$ intact for MathDisplay
+  // Keep markdown as-is; MathDisplay will handle **bold** and $...$
   return text
 }
 
@@ -113,8 +119,27 @@ const formattedExplanation = computed(() => {
   const paragraphs = explanation.value.split(/\n\s*\n/).filter(p => p.trim())
   
   for (const paragraph of paragraphs) {
-    // Check if this is a step header
-    const stepMatch = paragraph.match(/^步驟[零一二三四五六七八九十\d]+：(.*)$/)
+    const normalized = paragraph.trim().replace(/^\*\*(.+)\*\*$/, '$1')
+
+    // If paragraph contains multiple lines starting with bullets, convert to list content
+    const lines = normalized.split(/\r\n|\n|\r|\u2028|\u2029/)
+    const listItems = []
+    for (const line of lines) {
+      const m = line.match(/^\s*(?:[\*\-–—－−•·・▪◦●○])\s*(.+)$/u)
+      if (m) listItems.push(m[1])
+    }
+    if (listItems.length >= 2 && listItems.length === lines.filter(l => l.trim()).length) {
+      // Entire paragraph is a list
+      if (currentStep) {
+        currentStep.contents.push({ type: 'list', items: listItems })
+      } else {
+        sections.push({ type: 'list', items: listItems })
+      }
+      continue
+    }
+
+    // Check if this is a step header (allow Chinese numerals or digits)
+    const stepMatch = normalized.match(/^步驟[零一二三四五六七八九十\d]+：(.*)$/)
     
     if (stepMatch) {
       // Start new step section
@@ -123,7 +148,7 @@ const formattedExplanation = computed(() => {
       }
       currentStep = {
         type: 'step',
-        title: paragraph.trim(),
+        title: normalized, // already stripped of ** if present
         contents: []
       }
       continue
