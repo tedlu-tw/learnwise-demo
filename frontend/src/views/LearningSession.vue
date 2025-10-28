@@ -27,15 +27,16 @@
         </div>
     </div>
 </template>
+
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useLessonStore } from '@/stores/lesson'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { lessonService } from '@/services/lesson.service'
-import MathText from '@/components/common/MathText.vue'
 import Nav from '@/components/common/Nav.vue'
 import QuestionCard from '@/components/lesson/QuestionCard.vue'
+import MathDisplay from '@/components/common/MathDisplay.vue'
 
 const lesson = useLessonStore()
 const auth = useAuthStore()

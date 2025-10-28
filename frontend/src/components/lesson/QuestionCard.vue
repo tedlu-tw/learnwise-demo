@@ -3,7 +3,7 @@
     <div class="mb-4">
       <span class="text-lg font-bold">Question {{ current }} of {{ total }}</span>
       <div class="mt-2 text-xl">
-        <MathText :text="question?.text || ''" />
+        <MathDisplay :text="question?.text || ''" />
       </div>
     </div>
     <div class="mb-2">
@@ -37,7 +37,7 @@
             <div v-if="selectedAnswer === idx" class="w-3 h-3 bg-blue-600 rounded-full"></div>
           </div>
         </div>
-        <MathText :text="option" />
+        <MathDisplay :text="option" />
       </button>
     </div>
     <div v-if="answerSubmitted" class="mt-4">
@@ -84,7 +84,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import MathText from '@/components/common/MathText.vue'
+import MathDisplay from '@/components/common/MathDisplay.vue'
 import ExplanationPanel from './ExplanationPanel.vue'
 
 const props = defineProps({

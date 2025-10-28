@@ -10,24 +10,18 @@
 
       <div v-else-if="explanation" class="space-y-4">
         <div class="text-lg font-medium text-gray-700 border-b pb-2">詳細解釋</div>
-        <div class="prose prose-sm max-w-none bg-white p-4 rounded-lg shadow-sm overflow-x-auto">
+        <div class="prose prose-sm max-w-none bg-white p-4 rounded-lg shadow-sm">
           <template v-for="(section, index) in formattedExplanation" :key="index">
             <div v-if="section.type === 'step'" class="mb-6">
-              <h3 class="font-bold text-lg text-gray-800 mb-3" v-html="section.title"></h3>
-              <div class="pl-4 space-y-2">
-                <div v-for="(content, contentIndex) in section.contents" :key="contentIndex" :class="{ 'equation-container': content.type === 'math' }">
-                  <template v-if="content.type === 'math' || content.type === 'inline-math'">
-                    <MathText :text="content.text" :class="{ 'inline': content.type === 'inline-math' }" />
-                  </template>
-                  <div v-else class="text-gray-800 content-text" v-html="content.text"></div>
-                </div>
+              <h3 class="font-bold text-lg text-gray-800 mb-3">{{ section.title }}</h3>
+              <div class="pl-4">
+                <template v-for="(content, contentIndex) in section.contents" :key="contentIndex">
+                  <MathDisplay :text="content.text" />
+                </template>
               </div>
             </div>
-            <div v-else class="mb-3" :class="{ 'equation-container': section.type === 'math' || section.type === 'inline-math' }">
-              <template v-if="section.type === 'math' || section.type === 'inline-math'">
-                <MathText :text="section.text" :class="{ 'inline': section.type === 'inline-math' }" />
-              </template>
-              <div v-else class="text-gray-800 content-text" v-html="section.text"></div>
+            <div v-else>
+              <MathDisplay :text="section.text" />
             </div>
           </template>
         </div>
@@ -66,7 +60,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import MathText from '@/components/common/MathText.vue'
+import MathDisplay from '@/components/common/MathDisplay.vue'
 import { lessonService } from '@/services/lesson.service'
 
 const props = defineProps({
@@ -99,201 +93,79 @@ const isValid = computed(() => {
   return valid
 })
 
-function processContent(text) {
-  const parts = []
-  let buffer = ''
-  let inMath = false
-  let currMathType = null
-  let displayMathBuffer = []
-  let inDisplayMath = false
-  let inList = false
-  let listItems = []
-
-  // Helper to add buffered content
-  const addBuffer = () => {
-    if (buffer) {
-      if (currMathType === 'inline') {
-        // For inline math, mark it specifically as inline math
-        parts.push({
-          type: 'inline-math',
-          text: `$${buffer}$`
+// Process inline math and bold text in a string
+function processInlineMath(text) {
+  // First handle bold text
+  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  
+  // Handle bullet points
+  if (text.match(/^\*/m)) {
+    const bulletPoints = text.split('\n').map(line => {
+      const bulletMatch = line.match(/^\*\s+(.*)$/)
+      if (bulletMatch) {
+        // Process math in bullet points
+        let content = bulletMatch[1]
+        content = content.replace(/\$([^$]+?)\$/g, (match) => {
+          return `<math-text text="${match}"></math-text>`
         })
-      } else if (currMathType === 'display') {
-        // For display math, add as a separate block
-        parts.push({
-          type: 'math',
-          text: `$$${buffer}$$`
-        })
-      } else {
-        // For regular text, process bold and combine with previous text if possible
-        const processedText = buffer.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        const lastPart = parts[parts.length - 1]
-        if (lastPart && lastPart.type === 'text') {
-          lastPart.text += processedText
-        } else {
-          parts.push({
-            type: 'text',
-            text: processedText
-          })
-        }
+        return `<li>${content}</li>`
       }
-      buffer = ''
-    }
+      return line
+    }).join('\n')
+    text = `<ul>${bulletPoints}</ul>`
+    return text
   }
 
-  const lines = text.split('\n')
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex]
-    
-    // Process each character in the line
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i]
-      const nextChar = line[i + 1]
-
-      if (!inDisplayMath && char === '$' && nextChar === '$') {
-        // Start of display math block
-        addBuffer()
-        inDisplayMath = true
-        inMath = true
-        currMathType = 'display'
-        i++ // Skip next $
-        continue
-      } else if (inDisplayMath && char === '$' && nextChar === '$') {
-        // End of display math block
-        addBuffer()
-        inDisplayMath = false
-        inMath = false
-        currMathType = null
-        i++ // Skip next $
-        continue
-      } else if (!inDisplayMath && char === '$' && !inMath && !nextChar?.match(/[$\\]/)) {
-        // Start of inline math
-        addBuffer()
-        inMath = true
-        currMathType = 'inline'
-        continue
-      } else if (!inDisplayMath && char === '$' && inMath && currMathType === 'inline') {
-        // End of inline math
-        addBuffer()
-        inMath = false
-        currMathType = null
-        continue
-      } else if (char === '\\' && nextChar === '$') {
-        // Handle escaped $
-        buffer += '$'
-        i++ // Skip next $
-      } else {
-        buffer += char
-      }
-    }
-
-    // Handle end of line
-    if (inDisplayMath) {
-      buffer += '\n'
-    } else if (buffer) {
-      addBuffer()
-    }
-  }
-
-  // Add any remaining content
-  if (buffer) {
-    addBuffer()
-  }
-
-  return parts
+  // Process regular text with math expressions
+  text = text.replace(/\$([^$]+?)\$/g, (match) => {
+    return `<math-text text="${match}"></math-text>`
+  })
+  return text
 }
 
-// Format explanation text into structured sections
+// Process the explanation text into sections
 const formattedExplanation = computed(() => {
   if (!explanation.value) return []
 
   const sections = []
   let currentStep = null
-
-  // Split into paragraphs first
+  
+  // Split text into paragraphs, preserving line breaks between paragraphs
   const paragraphs = explanation.value.split(/\n\s*\n/).filter(p => p.trim())
-
+  
   for (const paragraph of paragraphs) {
-    // Detect step headers - matches both Chinese numerals and Arabic numbers
-    const stepMatch = paragraph.match(/^\*\*(步驟[零一二三四五六七八九十\d]+：.*?)\*\*/)
-
+    // Check if this is a step header
+    const stepMatch = paragraph.match(/^步驟[零一二三四五六七八九十\d]+：(.*)$/)
+    
     if (stepMatch) {
+      // Start new step section
       if (currentStep) {
         sections.push(currentStep)
       }
       currentStep = {
         type: 'step',
-        title: stepMatch[1],
+        title: paragraph.trim(),
         contents: []
       }
-    } else if (currentStep) {
-      // Process paragraph and merge adjacent text parts
-      const processed = mergeAdjacentTextParts(processContent(paragraph))
-      currentStep.contents.push(...processed)
+      continue
+    }
+
+    // Process the paragraph
+    const processedText = processInlineMath(paragraph)
+    if (currentStep) {
+      currentStep.contents.push({ type: 'text', text: processedText })
     } else {
-      // Process standalone paragraph and merge adjacent text parts
-      const processed = mergeAdjacentTextParts(processContent(paragraph))
-      sections.push(...processed)
+      sections.push({ type: 'text', text: processedText })
     }
   }
-
-  // Add the last step if exists
+  
+  // Add final step if exists
   if (currentStep) {
     sections.push(currentStep)
   }
-
+  
   return sections
 })
-
-// Helper function to process bullet points
-function processBulletPoints(text) {
-  const lines = text.split('\n')
-  const bulletPattern = /^\s*[\*\-•]\s+(.+)$/
-  
-  // Check if it's a bullet list
-  if (!lines.some(line => bulletPattern.test(line))) {
-    return text
-  }
-
-  // Process bullet points
-  let formattedList = '<ul>'
-  for (const line of lines) {
-    const match = line.match(bulletPattern)
-    if (match) {
-      formattedList += `\n  <li>${match[1]}</li>`
-    }
-  }
-  formattedList += '\n</ul>'
-  
-  return formattedList
-}
-
-// Helper function to merge adjacent text parts
-function mergeAdjacentTextParts(parts) {
-  return parts.reduce((acc, part) => {
-    const lastPart = acc[acc.length - 1]
-    
-    if (lastPart && lastPart.type === 'text' && part.type === 'text') {
-      // Check for bullet points in the combined text
-      const combinedText = `${lastPart.text}\n${part.text}`
-      const bulletPattern = /^[\*\-•]\s+/m
-      
-      if (bulletPattern.test(combinedText)) {
-        // Process as bullet points
-        lastPart.text = processBulletPoints(combinedText)
-      } else {
-        // Preserve line breaks for normal text
-        lastPart.text = combinedText.trim()
-      }
-    } else if (part.type === 'inline-math') {
-      // Always keep inline math as separate parts
-      acc.push(part)
-    } else {
-      acc.push(part)
-    }
-    return acc
-  }, [])
-}
 
 async function getExplanation() {
   console.log('Getting explanation for question:', props.questionId)
@@ -303,7 +175,12 @@ async function getExplanation() {
   try {
     const result = await lessonService.getExplanation(props.questionId, props.selectedIndices)
     console.log('Got explanation result:', result)
+    console.log('Raw explanation text:', result.explanation)
     explanation.value = result.explanation
+
+    // Debug math expressions
+    const mathMatches = result.explanation.match(/\$[^$]+\$/g)
+    console.log('Found math expressions:', mathMatches)
   } catch (err) {
     console.error('Error getting explanation:', err)
     error.value = err.message || '無法獲取解釋'
@@ -314,100 +191,81 @@ async function getExplanation() {
 </script>
 
 <style>
+/* Typography and layout */
 .prose {
   color: #1f2937;
-  line-height: 1.625;
+  line-height: 1.8;
 }
 
-.prose p {
-  margin-bottom: 1rem;
-}
-
-.prose p:last-child {
-  margin-bottom: 0;
-}
-
-.prose h1,
-.prose h2,
 .prose h3 {
   font-weight: 600;
   color: #111827;
-  margin-bottom: 0.75em;
-  margin-top: 1.5em;
+  margin-bottom: 1em;
 }
 
-.prose h3:first-child {
-  margin-top: 0;
+/* Content blocks */
+.explanation-paragraph {
+  margin-bottom: 1.5em;
+  text-align: justify;
+  hyphens: auto;
 }
 
-/* Enhanced content formatting */
-.content-text {
-  white-space: pre-line; /* Preserve line breaks */
-  line-height: 1.6;
+.explanation-paragraph:last-child {
+  margin-bottom: 0;
 }
 
-/* Bullet point styling */
-.content-text ul {
-  margin: 1rem 0;
-  padding-left: 1.5rem;
+.math-content :deep(.katex) {
+  font-size: 1.1em;
+  display: inline;
+  text-align: left;
+  vertical-align: middle;
+  line-height: inherit;
+}
+
+.math-content :deep(.katex-inline) {
+  display: inline;
+  vertical-align: middle;
+  white-space: nowrap;
+  padding: 0 0.15em;
+}
+
+/* Fix line height and alignment */
+.math-content {
+  line-height: 2;
+  word-spacing: 0.05em;
+  text-align: justify;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+/* Lists */
+.math-content ul {
+  margin: 1em 0;
+  padding-left: 1.5em;
   list-style-type: disc;
 }
 
-.content-text li {
-  margin: 0.5rem 0;
-  line-height: 1.6;
-}
-
-/* Equation container */
-.equation-container {
-  max-width: 100%;
-  overflow-x: auto;
-  padding: 0.5rem 0;
-  scrollbar-width: thin;
-}
-
-/* Ensure inline math flows with text */
-.inline {
-  display: inline-block !important;
-  margin: 0 0.2em;
-  vertical-align: baseline;
-}
-
-.katex-display {
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.5em 0;
+.math-content li {
   margin: 0.5em 0;
+  line-height: 1.8;
 }
 
-/* Equation scrollbar styling */
-.equation-container::-webkit-scrollbar {
-  height: 6px;
+/* Math text integration */
+.explanation-paragraph :deep(.math-text) {
+  display: inline;
+  vertical-align: baseline;
+  line-height: inherit;
+  white-space: nowrap;
 }
 
-.equation-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
+.explanation-paragraph :deep(.katex) {
+  font-size: 1.1em;
+  line-height: inherit;
+  display: inline;
+  text-align: left;
 }
 
-.equation-container::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 3px;
-}
-
-.equation-container::-webkit-scrollbar-thumb:hover {
-  background: #666;
-}
-
-/* Display math styling */
-.equation-container:has(.katex-display) {
-  margin: 1rem 0;
-  text-align: center;
-}
-
-/* Ensure inline math doesn't break text flow */
-.katex-inline {
-  display: inline-block;
-  vertical-align: middle;
+.explanation-paragraph :deep(.katex-html) {
+  white-space: nowrap;
 }
 </style>

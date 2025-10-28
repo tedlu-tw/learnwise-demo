@@ -35,43 +35,43 @@ class LLMHelper:
                     "system_prompt": """你是一位專業的數學老師，負責指導學生理解他們的錯誤並提供詳細的解釋。
 
 請遵循以下格式要求：
-1. 使用繁體中文回答
-2. 將解釋分成清楚的段落，使用換行分隔
-3. 所有數學符號和公式必須使用 LaTeX 格式，並確保：
-   - 使用單個 $ 符號包圍簡單行內公式，如：$x + y = 10$
-   - 使用雙 $$ 符號包圍複雜公式，如：$$\\frac{x^2 + y^2}{2}$$
-   - 座標點必須使用括號並在同一個 $ 內，如：$(3, 7)$，不要分開寫
-   - 變數名使用 \\_，如：$x_{\\text{center}}$, $y_{\\text{max}}$
-   - 複雜下標使用 \\text，如：$x_{\\text{circumcenter}}$
+
+1. 使用繁體中文回答。
+
+2. 將解釋分成清楚的段落，每個段落之間必須用空行分隔。
+
+3. 所有數學符號和公式必須使用 LaTeX 格式，嚴格遵循以下規則：
+   - 所有公式都使用單個 $ 符號作為行內公式，如：$x + y = 10$
+   - 即使是較長或複雜的公式，也要使用行內格式，如：$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$
+   - 座標點必須用括號並在同一個 $ 內，如：$(3, 7)$
+   - 變數名使用 \\_，如：$x_{\\text{center}}$
    - 分數使用 \\frac{分子}{分母}，如：$\\frac{1}{2}$
    - 乘法使用 \\times 或 \\cdot，如：$2 \\times 3$
    - 次方使用 ^，如：$x^2$
    - 根號使用 \\sqrt{}，如：$\\sqrt{16}$
-   - 集合使用 \\mathbb{}，如：$\\mathbb{R}$, $\\mathbb{Z}$
+   - 集合使用 \\mathbb{}，如：$\\mathbb{R}$
    - 不等號使用 \\lt, \\gt, \\leq, \\geq，如：$x \\lt 0$
    - 希臘字母使用 \\alpha, \\beta 等，如：$\\alpha + \\beta$
    - 三角函數使用 \\sin, \\cos 等，如：$\\sin(x)$
-4. 使用**粗體文字**來標示重要觀念或關鍵字
-5. 每個步驟都要有明確的標題，使用**步驟標題**格式
-6. 使用適當的分段和空行來區分不同部分
-7. 對於多行或複雜的數學公式，使用 $$...$$：
-   $$
-   x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
-   $$
+   - 方程組使用 \\begin{cases} 和 \\end{cases}，如：$\\begin{cases} x + y = 1 \\\\ x - y = 2 \\end{cases}$
+
+4. 使用**粗體文字**來標示重要觀念或關鍵字。
+
+5. 每個步驟都要有明確的標題，使用**步驟標題**格式。
+
+6. 每個步驟之間必須用空行分隔。
+
+7. 在句子中提到數學符號時，一定要使用 LaTeX 格式，例如：「在圓 $C$ 和直線 $L$ 中...」。
 
 範例格式：
+
 **步驟一：理解題目**
+
 在這個問題中，我們需要找到點 $(x_0, y_0)$ 滿足方程式 $ax + by = c$ 其中 $a,b,c \\in \\mathbb{R}$。
 
-數學公式：
-$$
-\\begin{cases}
-x_{\\text{center}} = \\frac{x_1 + x_2}{2} \\\\
-y_{\\text{center}} = \\frac{y_1 + y_2}{2}
-\\end{cases}
-$$
+根據方程組：$\\begin{cases} x_{\\text{center}} = \\frac{x_1 + x_2}{2} \\\\ y_{\\text{center}} = \\frac{y_1 + y_2}{2} \\end{cases}$
 
-請嚴格按照以上格式要求撰寫解答。""",
+請嚴格按照以上格式要求撰寫解答，切勿使用雙 $$ 符號或 \\[...\\] 格式。每段文字之間都必須有空行。""",
                     "presence_penalty": 1.15,
                 }
             ):
@@ -98,34 +98,24 @@ $$
             # Handle empty lines
             if not line:
                 if math_buffer:
-                    # If we have a math buffer, don't add empty line
-                    continue
-                processed_lines.append('')
-                continue
-            
-            # Handle math blocks
-            if line.startswith('$$') or line.endswith('$$'):
-                if not in_math_block:
-                    # Start of math block
-                    in_math_block = True
-                    math_buffer = [line]
-                else:
-                    # End of math block
-                    math_buffer.append(line)
-                    # Join and clean up math block
-                    math_content = '\n'.join(math_buffer)
-                    # Ensure proper spacing around math blocks
-                    processed_lines.extend(['', math_content, ''])
+                    # Convert math block to inline math before adding
+                    math_content = ' '.join(math_buffer).strip()
+                    if math_content.startswith('$$') and math_content.endswith('$$'):
+                        math_content = math_content.replace('$$', '$')
+                    processed_lines.append(math_content)
                     math_buffer = []
                     in_math_block = False
+                else:
+                    processed_lines.append('')
                 continue
             
-            # Collect lines in math block
-            if in_math_block:
-                math_buffer.append(line)
-                continue
+            # Convert any block math to inline math
+            if '$$' in line:
+                line = line.replace('$$', '$')
+            if '\\[' in line or '\\]' in line:
+                line = line.replace('\\[', '$').replace('\\]', '$')
             
-            # Fix inline math formatting issues
+            # Handle remaining lines
             if '$' in line:
                 # Fix coordinate pairs
                 line = line.replace('$(', ' $(').replace(')$', ')$ ')
