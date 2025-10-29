@@ -31,8 +31,7 @@ cp .env.example .env
 ```
 
 Required environment variables:
-- `VITE_API_URL`: Backend API URL
-- `VITE_AUTH_TOKEN_KEY`: Local storage key for auth token
+- `VITE_API_URL`: Backend API base URL (e.g. http://localhost:5000 for local dev, http://localhost:5050 in Docker)
 
 3. Start development server:
 ```bash
@@ -50,7 +49,7 @@ npm run build
 frontend/
 ├── src/
 │   ├── components/         # Reusable Vue components
-│   │   ├── common/        # Shared components
+│   │   ├── common/        # Shared components (e.g., MathDisplay, Nav)
 │   │   └── lesson/        # Learning session components
 │   ├── router/            # Vue Router configuration
 │   ├── services/          # API services
@@ -58,8 +57,7 @@ frontend/
 │   ├── views/             # Page components
 │   ├── App.vue            # Root component
 │   └── main.js           # Application entry point
-├── public/               # Static assets
-└── tests/               # Test files
+└── tests/                 # Test files
 ```
 
 ## Key Components
@@ -74,9 +72,9 @@ frontend/
 
 ### Components
 - `QuestionCard.vue`: Question display and answer interface
-- `KatexRenderer.vue`: Math formula rendering
+- `ExplanationPanel.vue`: AI explanation viewer with bullet-list and math rendering, includes disclaimer
+- `MathDisplay.vue`: Unified text + KaTeX renderer supporting inline/display math, **bold**, and bullet lists
 - `Nav.vue`: Navigation bar
-- `MathText.vue`: Inline math text rendering
 
 ### Stores
 - `auth.js`: Authentication state and user data
@@ -84,7 +82,7 @@ frontend/
 
 ### Services
 - `auth.service.js`: Authentication API calls
-- `lesson.service.js`: Learning session API calls
+- `lesson.service.js`: Learning session and explanation API calls
 - `user.service.js`: User profile and settings
 - `axios.js`: Axios instance with interceptors
 
@@ -104,16 +102,14 @@ frontend/
 - Session management
 
 ### Math Rendering
-- KaTeX integration for math formulas
-- Support for inline and block math
-- LaTeX syntax support
+- Robust KaTeX integration for math formulas
+- Supports inline $...$ and display $$...$$ math
+- Handles **bold** markdown and bullet lists (-, *, •, etc.)
+- Unicode normalization and hidden character cleanup for reliable parsing
 
 ### User Interface
 - Responsive design
-- Dark/light mode support
-- Loading states
-- Error handling
-- Toast notifications
+- Loading states and error handling
 
 ## State Management
 
@@ -155,14 +151,11 @@ npm run test
 
 Key test files:
 - `QuestionCard.test.js`: Question component tests
-- `auth.store.test.js`: Authentication store tests
-- `lesson.service.test.js`: API service tests
 
 ## Error Handling
 - API error interceptors
 - Form validation
 - Network error handling
-- Session timeout handling
 
 ## Build and Deployment
 
@@ -172,6 +165,5 @@ docker build -t math-learning-frontend .
 ```
 
 ### Environment Configurations
-- `development`: Hot-reloading, source maps
-- `production`: Optimized build, minification
-- `test`: Test environment settings
+- `development`: Vite dev server with HMR (default port ~5173)
+- `production`: Optimized build, served by Nginx in Docker

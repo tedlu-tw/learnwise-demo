@@ -9,12 +9,13 @@ A full-stack adaptive math learning platform using Flask (Python), MongoDB, Vue 
 - Multiple question types support (single answer & multiple choice)
 - Real-time progress tracking and analytics
 - Skill-based learning paths
-- Interactive math formula rendering with KaTeX
+- Robust math rendering with KaTeX (inline/display, bold, bullets)
+- AI-generated explanations with consistent step titles and bullet lists
 - Responsive Vue.js frontend with modern UI
 - RESTful API with Flask backend
 - MongoDB for flexible data storage
 - Dockerized deployment for easy setup
-- Comprehensive test coverage
+- Test coverage
 
 ## Quickstart
 
@@ -26,13 +27,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
 # Set environment variables in .env
-# JWT_SECRET_KEY: `import secrets; print(secrets.token_urlsafe(32))`
-# ENCRYPTION_KEY: `from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())`
+# JWT_SECRET_KEY: `python - <<'PY'\nimport secrets; print(secrets.token_urlsafe(32))\nPY`
+# ENCRYPTION_KEY: `python - <<'PY'\nfrom cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\nPY`
+# REPLICATE_API_TOKEN: your token for /lessons/explain
 python3 ../scripts/init_db.py
-# If SSL error occurs: 
-# `/Applications/Python\ 3.x/Install\ Certificates.command`
-# `pip install --upgrade certifi`
-python3 ../scripts/seed_questions.py
+python3 ../scripts/seed_sample_data.py  # optional sample data
 flask run --host=0.0.0.0 --port=5000
 ```
 
@@ -41,19 +40,20 @@ flask run --host=0.0.0.0 --port=5000
 cd frontend
 npm install
 cp .env.example .env
-# Configure VITE_API_URL in .env
+# Configure VITE_API_URL (e.g. http://localhost:5000 or http://localhost:5050 when using Docker)
 npm run dev
 ```
 
 ### 3. Run with Docker
 ```bash
-# Create and configure .env files first
 docker-compose up --build
 ```
 
 The application will be available at:
-- Frontend: http://localhost:8080
-- Backend API: http://localhost:5000
+- Frontend (Docker): http://localhost/
+- Backend API (Docker): http://localhost:5050
+- Frontend (local dev default): http://localhost:5173
+- Backend API (local dev): http://localhost:5000
 
 ## Testing
 ### Backend Tests
@@ -77,37 +77,35 @@ npm run test
 │   └── utils/        # Helper functions
 ├── frontend/         # Vue 3 application
 │   ├── src/
-│   │   ├── components/  # Vue components
+│   │   ├── components/  # Vue components (incl. MathDisplay, ExplanationPanel)
 │   │   ├── views/      # Page components
 │   │   ├── stores/     # Pinia stores
 │   │   └── services/   # API services
 │   └── tests/      # Frontend tests
 ├── scripts/        # Database setup and seeding
-├── tests/         # Backend tests
-└── question_source/ # Source materials
+└── tests/         # Backend tests
 ```
 
 ## Documentation
 - [Backend Documentation](backend/README.md) - API endpoints and database schema
 - [Frontend Documentation](frontend/README.md) - Components and state management
-- [Implementation Guide](implementation_guide.md) - Technical architecture and decisions
-- [FSRS Documentation](fsrs_readme.md) - Spaced repetition implementation details
 
 ## Environment Variables
 
 ### Backend (.env)
 ```
-MONGODB_URI=mongodb+srv://...
+MONGODB_URI=mongodb://localhost:27017/innoserve-dev
 JWT_SECRET_KEY=your-secret-key
 ENCRYPTION_KEY=your-encryption-key
-CORS_ORIGINS=http://localhost:8080
+CORS_ORIGINS=*
+REPLICATE_API_TOKEN=your-replicate-token
 ```
 
 ### Frontend (.env)
 ```
 VITE_API_URL=http://localhost:5000
-VITE_AUTH_TOKEN_KEY=auth_token
 ```
 
-## License
-GPLv3 License - See LICENSE file for details.
+## Notes
+- Explanations cache with 30-day TTL is enabled via `scripts/init_db.py`.
+- The explanation viewer shows a disclaimer: 「AI 生成結果僅供參考。」

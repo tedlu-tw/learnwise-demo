@@ -34,11 +34,11 @@ Required environment variables:
 - `JWT_SECRET_KEY`: Secret key for JWT tokens
 - `ENCRYPTION_KEY`: Key for password encryption
 - `CORS_ORIGINS`: Allowed origins for CORS
+- `REPLICATE_API_TOKEN`: API token for Replicate (LLM explanations)
 
-4. Initialize database:
+4. Initialize database (create indexes):
 ```bash
 python ../scripts/init_db.py
-python ../scripts/seed_questions.py
 ```
 
 5. Run the development server:
@@ -46,73 +46,23 @@ python ../scripts/seed_questions.py
 flask run --host=0.0.0.0 --port=5000
 ```
 
-## API Documentation
-
-### Authentication
-
-#### POST /auth/register
-Register a new user.
-```json
-{
-  "email": "user@example.com",
-  "password": "password123",
-  "name": "User Name"
-}
-```
-
-#### POST /auth/login
-Login and receive JWT token.
-```json
-{
-  "email": "user@example.com",
-  "password": "password123"
-}
-```
+## API Overview
 
 ### Learning Sessions
+- `POST /lessons/start` — start a session (requires `skill_ids`, `type`)
+- `POST /lessons/next` — get next question for the session
+- `POST /lessons/submit` — submit answer; updates FSRS and user stats
+- `GET  /lessons/progress-summary` — user progress summary
+- `GET  /lessons/due-count` — number of due cards (FSRS)
+- `POST /lessons/explain` — generate AI explanation for a question attempt
 
-#### GET /lessons/categories
-Get available learning categories.
+### Explanation API
+- Caches explanations per `(question_id, selected_indices)` with 30‑day TTL.
+- Backend normalizes formatting (step headers, bullet lists, inline math).
 
-#### POST /lessons/start
-Start a new learning session.
-```json
-{
-  "categories": ["algebra", "geometry"]
-}
-```
+## Database Overview (key collections)
 
-#### GET /lessons/next
-Get next question in current session.
-
-#### POST /lessons/answer
-Submit answer for current question.
-```json
-{
-  "answer": ["A"] or "42",
-  "time_spent": 30
-}
-```
-
-#### GET /lessons/progress-summary
-Get learning progress summary.
-
-### User Management
-
-#### GET /user/profile
-Get user profile and statistics.
-
-#### PUT /user/skills
-Update user's selected learning skills.
-```json
-{
-  "skills": ["algebra", "geometry"]
-}
-```
-
-## Database Schema
-
-### Users Collection
+### users
 ```json
 {
   "_id": ObjectId,
@@ -120,70 +70,69 @@ Update user's selected learning skills.
   "password": String,
   "name": String,
   "selected_skills": [String],
-  "stats": {
-    "total_questions": Number,
-    "correct_answers": Number
-  }
+  "stats": { "total_questions": Number, "correct_answers": Number, "current_streak": Number }
 }
 ```
 
-### Questions Collection
+### questions
 ```json
 {
   "_id": ObjectId,
   "question_text": String,
+  "text": String,
   "type": String,
   "options": [String],
-  "correct_answer": [String],
+  "correct_answer": [Number],
   "category": String,
   "difficulty": Number
 }
 ```
 
-### Sessions Collection
+### lesson_sessions
 ```json
 {
-  "_id": ObjectId,
+  "session_id": String,
   "user_id": ObjectId,
-  "start_time": DateTime,
-  "end_time": DateTime,
-  "questions": [{
-    "question_id": ObjectId,
-    "answered": Boolean,
-    "correct": Boolean,
-    "time_spent": Number
-  }]
+  "selected_categories": [String],
+  "available_questions": [String],
+  "used_questions": [String],
+  "answers": [
+    { "question_id": String, "answer": [Number], "correct": Boolean, "response_time": Number, "timestamp": Date }
+  ],
+  "completed": Boolean,
+  "created_at": Date,
+  "updated_at": Date,
+  "last_answer_time": Date,
+  "last_answer_correct": Boolean
 }
 ```
 
-### FSRS Cards Collection
+### fsrs_cards
 ```json
 {
   "_id": ObjectId,
   "user_id": ObjectId,
-  "question_id": ObjectId,
-  "state": FSRSState,
-  "due": DateTime,
+  "question_id": ObjectId|String,
+  "state": Number,
+  "due_date": Date,
   "stability": Number,
-  "difficulty": Number
+  "difficulty": Number,
+  "updated_at": Date
 }
 ```
 
-## Error Handling
-The API uses standard HTTP status codes and returns error responses in the format:
+### explanation_cache
 ```json
 {
-  "error": "Error message",
-  "status": 400
+  "key": String,  // "explanation:<question_id>:<sorted_indices>"
+  "explanation": String,
+  "created_at": Date,
+  "question_id": String,
+  "selected_indices": [Number]
 }
 ```
 
-Common status codes:
-- 200: Success
-- 400: Bad Request
-- 401: Unauthorized
-- 404: Not Found
-- 500: Internal Server Error
+Indexes are created by `scripts/init_db.py`, including TTL on `explanation_cache.created_at`.
 
 ## Testing
 
@@ -194,5 +143,8 @@ python -m unittest discover ../tests
 
 Key test files:
 - `test_fsrs_integration.py`: FSRS algorithm integration tests
-- `test_auth.py`: Authentication endpoint tests
-- `test_lessons.py`: Learning session endpoint tests
+- `test_fsrs_helper.py`: Helper tests
+- `test_fsrs_card.py`: Model tests
+
+## Notes
+- Ensure environment variables are set (including `REPLICATE_API_TOKEN`) before using `/lessons/explain`.
