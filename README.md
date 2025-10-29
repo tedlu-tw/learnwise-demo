@@ -1,5 +1,7 @@
 # Math Learning System with Spaced Repetition
 
+![Dashboard-UI](./dashboard.png)
+
 ## Overview
 A full-stack adaptive math learning platform using Flask (Python), MongoDB, Vue 3, Pinia, Tailwind CSS, and the FSRS (Free Spaced Repetition Scheduler) algorithm. The system provides personalized learning experiences by adapting to each student's performance and optimizing review intervals.
 
