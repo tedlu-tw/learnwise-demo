@@ -99,6 +99,41 @@ class LLMHelper:
             logger.error(f"Error generating explanation: {str(e)}")
             raise
 
+    def generate_followup(self, ctx: Dict[str, Any]) -> str:
+        """Generate a concise, step-focused follow-up reply based on prior explanation and user question."""
+        try:
+            prompt = self._create_followup_prompt(ctx)
+            output = ""
+            for event in replicate.stream(
+                "meta/meta-llama-3-70b-instruct",
+                input={
+                    "top_k": 0,
+                    "top_p": 0.9,
+                    "prompt": prompt,
+                    "max_tokens": 768,
+                    "temperature": 0.7,
+                    "system_prompt": """你是一位溫和且精煉的數學家教，正在針對學生的「追問」做對話式解答。
+
+請遵守：
+1) 使用繁體中文；2) 回覆短小精煉、切中重點；3) 只聚焦於學生此輪的問題（或指定的步驟），避免重覆完整解題；
+4) 不要以條列式呈現，可以簡單分段，可用 **粗體** 標出關鍵字；
+5) 公式一律使用單個 $ 的行內 LaTeX（禁止 $$ 與 \\[...\\]）；
+6) 不要使用 **步驟N** 標題或新增章節標題；
+7) 若需要示範，提供最小可行的簡短算式或例子即可。
+
+回覆只包含內容本身，不要重覆學生的原話。""",
+                    "presence_penalty": 1.0,
+                }
+            ):
+                output += str(event)
+
+            # Reuse formatting cleanup (lists, inline math normalization)
+            processed = self._process_explanation(output.strip())
+            return processed
+        except Exception as e:
+            logger.error(f"Error generating follow-up: {str(e)}")
+            raise
+
     def _process_explanation(self, text: str) -> str:
         """Process the explanation to ensure proper formatting."""
         # Normalize newlines and strip trailing spaces
@@ -197,5 +232,58 @@ class LLMHelper:
 - 提供類似題目的解題技巧
 
 請確保使用繁體中文回答，並適當分段排版。
+"""
+        return prompt
+
+    def _create_followup_prompt(self, ctx: Dict[str, Any]) -> str:
+        """Create a focused follow-up prompt using question, prior explanation, history, and the user's message."""
+        question_text = ctx.get('question_text') or ''
+        options = ctx.get('options') or []
+        selected_indices = ctx.get('selected_indices') or []
+        correct_indices = ctx.get('correct_indices') or []
+        is_correct = ctx.get('is_correct', False)
+        step_key = (ctx.get('follow_up') or {}).get('step_key')
+        user_msg = (ctx.get('follow_up') or {}).get('message') or ''
+        explanation_text = (ctx.get('explanation_text') or '')
+        history = ctx.get('history') or []
+
+        # Keep explanation short in prompt to save tokens
+        expl_snippet = explanation_text.strip()
+        if len(expl_snippet) > 1800:
+            expl_snippet = expl_snippet[:1800] + "\n...（已截斷）"
+
+        def fmt_msg(m):
+            role = m.get('role', 'user')
+            content = (m.get('content') or '').strip()
+            return f"[{role}] {content}"
+        history_block = "\n".join(fmt_msg(m) for m in history[-6:])  # last 6 turns
+
+        def opt_str(indices):
+            return ", ".join(options[i] for i in indices if i < len(options))
+
+        selected_str = opt_str(selected_indices)
+        correct_str = opt_str(correct_indices)
+        focus = step_key or '本題'
+
+        prompt = f"""
+原始題目：{question_text}
+已選擇：{selected_str if selected_str else '（無）'}
+正確答案：{correct_str if correct_str else '（無）'}
+是否答對：{'是' if is_correct else '否'}
+
+原先的解釋（供參考）：
+{expl_snippet}
+
+對話歷史（近幾輪）：
+{history_block if history_block else '（無）'}
+
+學生的追問（焦點：{focus}）：
+{user_msg}
+
+請根據以上資訊，輸出「簡潔、條列式、重點式」的追問回覆（繁體中文、行內 $LaTeX$、禁止 $$）：
+- 直接回答學生這一輪的疑問；
+- 若涉及計算，給最小必要步驟；
+- 建議常見錯誤的避錯提醒；
+- 最後以一行「下一步建議：...」結尾。
 """
         return prompt

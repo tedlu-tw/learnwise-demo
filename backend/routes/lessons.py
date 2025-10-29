@@ -556,3 +556,83 @@ def get_explanation():
     except Exception as e:
         logger.error(f"Error in get_explanation: {str(e)}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
+
+@lessons_bp.route('/explain/chat', methods=['POST'])
+@jwt_required()
+@log_errors
+def explain_chat():
+    """Chat endpoint for follow-up questions on an explanation."""
+    try:
+        payload = request.get_json(force=True)
+        user_id = get_jwt_identity()
+        question_id = payload.get('question_id')
+        selected_indices = payload.get('selected_indices', [])
+        message = payload.get('message', '').strip()
+        thread_id = payload.get('thread_id')
+        step_key = payload.get('step_key')
+        history = payload.get('history', []) or []
+        explanation_text = payload.get('explanation_text')
+
+        if not question_id or not message:
+            return jsonify({'error': 'Missing question_id or message'}), 400
+
+        db = get_db()
+        q = db.questions.find_one({'_id': ObjectId(question_id)})
+        if not q:
+            return jsonify({'error': 'Question not found'}), 404
+
+        if not thread_id:
+            thread_id = str(ObjectId())
+
+        correct_indices = q.get('correct_answer', [])
+        if not isinstance(correct_indices, list):
+            correct_indices = [correct_indices] if correct_indices is not None else []
+
+        ctx = {
+            'question_text': q.get('question_text') or q.get('text'),
+            'options': q.get('options', []),
+            'correct_indices': correct_indices,
+            'selected_indices': selected_indices,
+            'is_correct': sorted(selected_indices) == sorted(correct_indices),
+            'follow_up': {
+                'message': message,
+                'step_key': step_key,
+            },
+            'history': history,
+            'explanation_text': explanation_text,
+        }
+
+        from utils.llm_helper import LLMHelper
+        llm = LLMHelper()
+        reply = llm.generate_followup(ctx)
+
+        assistant_reply = reply
+
+        db.explanation_threads.update_one(
+            {'thread_id': thread_id},
+            {'$setOnInsert': {
+                'thread_id': thread_id,
+                'user_id': ObjectId(user_id),
+                'question_id': ObjectId(question_id),
+                'created_at': datetime.utcnow(),
+            },
+             '$set': {'updated_at': datetime.utcnow(), 'step_key': step_key},
+             '$push': {
+                 'messages': {
+                     '$each': [
+                         {'role': 'user', 'content': message, 'ts': datetime.utcnow()},
+                         {'role': 'assistant', 'content': assistant_reply, 'ts': datetime.utcnow()},
+                     ]
+                 }
+             }
+            }, upsert=True)
+
+        return jsonify({
+            'thread_id': thread_id,
+            'messages': [
+                {'role': 'assistant', 'content': assistant_reply}
+            ]
+        })
+    except Exception as e:
+        logger.error(f"Error in explain_chat: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500

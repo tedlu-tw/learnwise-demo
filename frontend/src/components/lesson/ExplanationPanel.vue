@@ -9,13 +9,25 @@
       </div>
 
       <div v-else-if="explanation" class="space-y-4">
-        <div class="text-lg font-medium text-gray-700 border-b pb-2">詳細解釋</div>
+        <div class="text-lg font-medium text-gray-700 border-b pb-2 flex items-center justify-between">
+          <span>詳細解釋</span>
+          <button
+            class="text-sm px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+            @click="openChat()"
+          >追問</button>
+        </div>
         <div class="prose prose-sm max-w-none bg-white p-4 rounded-lg shadow-sm">
           <template v-for="(section, index) in formattedExplanation" :key="index">
             <div v-if="section.type === 'step'" class="mb-6">
-              <h3 class="font-bold text-lg text-gray-800 mb-3">
-                <MathDisplay :text="section.title" />
-              </h3>
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-lg text-gray-800">
+                  <MathDisplay :text="section.title" />
+                </h3>
+                <button
+                  class="text-xs px-2 py-1 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                  @click="openChat(section.title)"
+                >步驟追問</button>
+              </div>
               <div class="pl-4">
                 <template v-for="(content, contentIndex) in section.contents" :key="contentIndex">
                   <ul v-if="content.type === 'list'" class="list-disc ml-6 my-2">
@@ -67,11 +79,27 @@
       <div>Valid: {{ isValid }}</div>
     </div>
   </div>
+
+  <!-- Follow-up Chat Drawer -->
+  <ChatDrawer
+    :open="chatOpen"
+    :messages="chatMessages"
+    :loading="chatLoading"
+    :error="chatError"
+    @close="chatOpen = false"
+    @send="onSendFollowUp"
+  />
+  <div v-if="explanation && chatOpen" class="fixed bottom-4 right-4 z-40 hidden md:flex gap-2">
+    <button class="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200" @click="onSendFollowUp('可以更直白地解釋嗎？')">更直白</button>
+    <button class="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200" @click="onSendFollowUp('可以舉一個例子嗎？')">舉例</button>
+    <button class="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200" @click="onSendFollowUp('哪一步最容易錯？')">易錯點</button>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import MathDisplay from '@/components/common/MathDisplay.vue'
+import ChatDrawer from '@/components/lesson/ChatDrawer.vue'
 import { lessonService } from '@/services/lesson.service'
 
 const props = defineProps({
@@ -89,42 +117,40 @@ const explanation = ref(null)
 const loading = ref(false)
 const error = ref(null)
 
-// Add validation computed property
+// follow-up chat state
+const chatOpen = ref(false)
+const chatMessages = ref([])
+const chatLoading = ref(false)
+const chatError = ref(null)
+const chatThreadId = ref(null)
+const chatStepKey = ref(null)
+
+function openChat(stepTitle = null) {
+  if (!explanation.value) return
+  chatOpen.value = true
+  chatStepKey.value = stepTitle
+  // seed with system context as assistant message to show scope
+  if (chatMessages.value.length === 0) {
+    chatMessages.value.push({ role: 'assistant', content: '針對上面的解釋提出你的問題吧～' })
+  }
+}
+
 const isValid = computed(() => {
   const valid = Boolean(props.questionId && Array.isArray(props.selectedIndices))
-  console.log('ExplanationPanel validation:', {
-    questionId: props.questionId,
-    selectedIndices: props.selectedIndices,
-    validationResult: valid,
-    questionIdType: typeof props.questionId,
-    selectedIndicesType: typeof props.selectedIndices,
-    hasQuestionId: Boolean(props.questionId),
-    isArray: Array.isArray(props.selectedIndices)
-  })
   return valid
 })
 
-// Process inline math and bold text in a string
 function processInlineMath(text) {
-  // Keep markdown as-is; MathDisplay will handle **bold** and $...$
   return text
 }
 
-// Process the explanation text into sections
 const formattedExplanation = computed(() => {
   if (!explanation.value) return []
-
   const sections = []
   let currentStep = null
-  
-  // Split text into paragraphs, preserving line breaks between paragraphs
   const paragraphs = explanation.value.split(/\n\s*\n/).filter(p => p.trim())
-  
   for (const paragraph of paragraphs) {
-    // Preserve bold markers; do not strip **...**
     const normalized = paragraph.trim()
-
-    // If paragraph contains multiple lines starting with bullets, convert to list content
     const lines = normalized.split(/\r\n|\n|\r|\u2028|\u2029/)
     const listItems = []
     for (const line of lines) {
@@ -132,7 +158,6 @@ const formattedExplanation = computed(() => {
       if (m) listItems.push(m[1])
     }
     if (listItems.length >= 2 && listItems.length === lines.filter(l => l.trim()).length) {
-      // Entire paragraph is a list
       if (currentStep) {
         currentStep.contents.push({ type: 'list', items: listItems })
       } else {
@@ -141,31 +166,20 @@ const formattedExplanation = computed(() => {
       continue
     }
 
-    // Step header (allow optional bold wrappers; strip wrappers for title)
     const stepMatch = normalized.match(/^\s*(?:\*\*|__)?\s*(步驟[零一二三四五六七八九十\d]+：.*?)\s*(?:\*\*|＊＊|__)?\s*$/)
     if (stepMatch) {
       if (currentStep) sections.push(currentStep)
-      currentStep = {
-        type: 'step',
-        title: stepMatch[1], // remove bold markers; h3 already bold
-        contents: []
-      }
+      currentStep = { type: 'step', title: stepMatch[1], contents: [] }
       continue
     }
 
-    // Standalone bold heading (e.g., **結論** / **重要觀念** / __總結__)
     const boldOnlyHeading = normalized.match(/^\s*(\*\*|__)([\s\S]+?)\1\s*$/)
     if (boldOnlyHeading) {
       if (currentStep) sections.push(currentStep)
-      currentStep = {
-        type: 'step',
-        title: boldOnlyHeading[2].trim(), // strip **/__ wrappers
-        contents: []
-      }
+      currentStep = { type: 'step', title: boldOnlyHeading[2].trim(), contents: [] }
       continue
     }
 
-    // Process the paragraph
     const processedText = processInlineMath(paragraph)
     if (currentStep) {
       currentStep.contents.push({ type: 'text', text: processedText })
@@ -173,34 +187,49 @@ const formattedExplanation = computed(() => {
       sections.push({ type: 'text', text: processedText })
     }
   }
-  
-  // Add final step if exists
-  if (currentStep) {
-    sections.push(currentStep)
-  }
-  
+  if (currentStep) sections.push(currentStep)
   return sections
 })
 
 async function getExplanation() {
-  console.log('Getting explanation for question:', props.questionId)
   loading.value = true
   error.value = null
-  
   try {
     const result = await lessonService.getExplanation(props.questionId, props.selectedIndices)
-    console.log('Got explanation result:', result)
-    console.log('Raw explanation text:', result.explanation)
     explanation.value = result.explanation
-
-    // Debug math expressions
-    const mathMatches = result.explanation.match(/\$[^$]+\$/g)
-    console.log('Found math expressions:', mathMatches)
   } catch (err) {
-    console.error('Error getting explanation:', err)
     error.value = err.message || '無法獲取解釋'
   } finally {
     loading.value = false
+  }
+}
+
+async function onSendFollowUp(message) {
+  try {
+    chatError.value = null
+    chatLoading.value = true
+    chatMessages.value.push({ role: 'user', content: message })
+
+    const history = chatMessages.value.map(m => ({ role: m.role, content: m.content }))
+    const res = await lessonService.sendFollowUp({
+      questionId: props.questionId,
+      selectedIndices: props.selectedIndices,
+      message,
+      threadId: chatThreadId.value,
+      stepKey: chatStepKey.value,
+      history,
+      explanation: explanation.value
+    })
+
+    chatThreadId.value = res.thread_id || chatThreadId.value
+    const msgs = res.messages || []
+    for (const m of msgs) {
+      chatMessages.value.push({ role: m.role || 'assistant', content: m.content})
+    }
+  } catch (e) {
+    chatError.value = e.message || '發送失敗'
+  } finally {
+    chatLoading.value = false
   }
 }
 </script>

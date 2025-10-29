@@ -167,6 +167,24 @@ class LessonService {
       throw new Error(error.response?.data?.message || error.message || '無法獲取解釋')
     }
   }
+
+  async sendFollowUp({ questionId, selectedIndices, message, threadId, stepKey, history, explanation }) {
+    try {
+      const { data } = await api.post('/lessons/explain/chat', {
+        question_id: questionId,
+        selected_indices: selectedIndices,
+        message,
+        thread_id: threadId,
+        step_key: stepKey,
+        history,
+        explanation_text: explanation
+      })
+      return data
+    } catch (error) {
+      console.error('Error sending follow-up question:', error.response?.data || error)
+      throw new Error(error.response?.data?.message || error.message || '無法發送後續問題')
+    }
+  }
 }
 
 export const lessonService = new LessonService()
