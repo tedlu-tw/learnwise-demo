@@ -4,6 +4,7 @@ import itertools
 from typing import Dict, Any, List
 import logging
 from dotenv import load_dotenv
+import re
 
 # Load environment variables
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env'))
@@ -45,13 +46,14 @@ class LLMHelper:
 
 3. 列表格式（重要）：
    - 務必以「條列式」呈現內容（每個重點一行）。
-   - 列表項以 * 或 - 作為項目符號，示例：
+   - 列表項以 * 或 - 作為項目符號，不可使用 + 號作為項目符號，示例：
      * 這是一個重點（行內公式如 $x^2+y^2=r^2$）
      * 這是另一個重點（保持行內 LaTeX）
    - 不要使用編號清單（1. 2. 3.），也不要使用多層巢狀清單。
 
 4. 所有數學符號和公式必須使用 LaTeX 行內格式：
    - 一律使用單個 $ 作為行內公式，例如：$x + y = 10$。
+   - 禁止使用任何需要「顯示模式」的環境：\begin{align}, \begin{aligned}, \begin{equation}, \begin{gather}, \begin{multline}, \begin{split} 等；如需多行，請改用多個條列，並各自使用行內 $...$。
    - 不要使用 $$ 或 \\[...\\]，長式公式也請用行內 $...$。
    - 座標點置於同一個 $ 中，如：$(3, 7)$。
    - 下標與上標：$x_{i}$、$x^{2}$；分數：$\\frac{a}{b}$；根號：$\\sqrt{n}$。
@@ -62,7 +64,7 @@ class LLMHelper:
    - 關鍵字可使用 **粗體** 強調（請勿使用其他 HTML 標籤）。
 
 6. 禁止事項：
-   - 禁止使用雙 $$、\\[...\\]、HTML 標籤、或任何非行內 $...$ 的數學格式。
+   - 禁止使用雙 $$、\\[...\\]、HTML 標籤、或任何顯示模式的數學環境（align/aligned/equation/gather/multline/split）。
 
 範例結構（務必比照空行與條列）：
 
@@ -86,7 +88,7 @@ class LLMHelper:
 * 總結重要觀念（條列）。
 * 類題提示（條列）。
 
-請嚴格按照以上格式要求撰寫解答，切勿使用雙 $$ 或 \\[...\\] 格式。每段文字與每個步驟標題前後都必須有空行。""",
+請嚴格按照以上格式要求撰寫解答，切勿使用雙 $$ 或 \\[...\\] 格式，亦不得使用需要顯示模式的環境。每段文字與每個步驟標題前後都必須有空行。""",
                     "presence_penalty": 1.15,
                 }
             ):
@@ -116,8 +118,8 @@ class LLMHelper:
 
 請遵守：
 1) 使用繁體中文；2) 回覆短小精煉、切中重點；3) 只聚焦於學生此輪的問題（或指定的步驟），避免重覆完整解題；
-4) 不要以條列式呈現，可以簡單分段，可用 **粗體** 標出關鍵字；
-5) 公式一律使用單個 $ 的行內 LaTeX（禁止 $$ 與 \\[...\\]）；
+4) 可以用條列或短段落呈現；
+5) 公式一律使用單個 $ 的行內 LaTeX（禁止 $$ 與 \\[...\\]），並嚴禁 align/aligned/equation/gather/multline/split 等顯示模式環境；
 6) 不要使用 **步驟N** 標題或新增章節標題；
 7) 若需要示範，提供最小可行的簡短算式或例子即可。
 
@@ -134,8 +136,40 @@ class LLMHelper:
             logger.error(f"Error generating follow-up: {str(e)}")
             raise
 
+    def _sanitize_display_envs(self, text: str) -> str:
+        """Convert display-mode environments (align/equation/etc.) into bullet lists with inline math."""
+        def replace_env(match):
+            env = match.group(1)
+            body = match.group(2)
+            # Split by LaTeX line breaks \\ and newlines
+            parts = re.split(r"\\\\\s*|\n+", body)
+            bullets: List[str] = []
+            for p in parts:
+                s = p.strip()
+                if not s:
+                    continue
+                # Remove alignment markers like & and trailing commas
+                s = s.replace('&', ' ')
+                s = re.sub(r"\s+", " ", s).strip()
+                # Remove enclosing $ if mistakenly present
+                if s.startswith('$') and s.endswith('$') and len(s) > 2:
+                    s = s[1:-1].strip()
+                bullets.append(f"* ${s}$")
+            return "\n".join(bullets) if bullets else ''
+
+        # Handle a set of common display environments
+        envs = [
+            'align\*?', 'aligned', 'equation\*?', 'gather\*?', 'multline\*?', 'split', 'array'
+        ]
+        for env in envs:
+            pattern = re.compile(rf"\\begin\{{({env})\}}([\s\S]*?)\\end\{{\1\}}", re.IGNORECASE)
+            text = pattern.sub(replace_env, text)
+        return text
+
     def _process_explanation(self, text: str) -> str:
         """Process the explanation to ensure proper formatting."""
+        # First, sanitize display-mode environments
+        text = self._sanitize_display_envs(text)
         # Normalize newlines and strip trailing spaces
         text = text.replace('\r\n', '\n').replace('\r', '\n')
         lines = text.split('\n')
@@ -280,7 +314,7 @@ class LLMHelper:
 學生的追問（焦點：{focus}）：
 {user_msg}
 
-請根據以上資訊，輸出「簡潔、條列式、重點式」的追問回覆（繁體中文、行內 $LaTeX$、禁止 $$）：
+請根據以上資訊，輸出「簡潔、重點式」的追問回覆（繁體中文、行內 $LaTeX$、禁止 $$ 與顯示模式環境，禁止使用條列式、禁止使用粗體文字）：
 - 直接回答學生這一輪的疑問；
 - 若涉及計算，給最小必要步驟；
 - 建議常見錯誤的避錯提醒；

@@ -25,14 +25,14 @@
                 </h3>
                 <button
                   class="text-xs px-2 py-1 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                  @click="openChat(section.title)"
+                  @click="openChat(section.title, true)"
                 >步驟追問</button>
               </div>
               <div class="pl-4">
                 <template v-for="(content, contentIndex) in section.contents" :key="contentIndex">
                   <ul v-if="content.type === 'list'" class="list-disc ml-6 my-2">
                     <li v-for="(item, i) in content.items" :key="i">
-                      <MathDisplay :text="item" />
+                      <div class="whitespace-pre-line"><MathDisplay :text="item" /></div>
                     </li>
                   </ul>
                   <template v-else>
@@ -86,6 +86,7 @@
     :messages="chatMessages"
     :loading="chatLoading"
     :error="chatError"
+    :step-key="chatStepKey"
     @close="chatOpen = false"
     @send="onSendFollowUp"
   />
@@ -125,24 +126,33 @@ const chatError = ref(null)
 const chatThreadId = ref(null)
 const chatStepKey = ref(null)
 
-function openChat(stepTitle = null) {
+function openChat(stepTitle = null, autoSend = false) {
   if (!explanation.value) return
+
+  // If switching to a different step, reset thread and messages
+  if (stepTitle && chatStepKey.value !== stepTitle) {
+    chatThreadId.value = null
+    chatMessages.value = []
+  }
+
   chatOpen.value = true
   chatStepKey.value = stepTitle
-  // seed with system context as assistant message to show scope
-  if (chatMessages.value.length === 0) {
-    chatMessages.value.push({ role: 'assistant', content: '針對上面的解釋提出你的問題吧～' })
+
+  // Seed helper message only when not auto-sending and thread empty
+  if (!autoSend && chatMessages.value.length === 0) {
+    chatMessages.value.push({ role: 'assistant', content: '你可以就上述解釋提出追問，或指定想針對的步驟。' })
+  }
+
+  // Auto-send a focused prompt for the given step
+  if (autoSend && stepTitle) {
+    const msg = `我想針對「${stepTitle}」進一步理解：請用更直白的說法解釋關鍵概念，並提供一個簡短範例。`
+    onSendFollowUp(msg)
   }
 }
 
-const isValid = computed(() => {
-  const valid = Boolean(props.questionId && Array.isArray(props.selectedIndices))
-  return valid
-})
+const isValid = computed(() => Boolean(props.questionId && Array.isArray(props.selectedIndices)))
 
-function processInlineMath(text) {
-  return text
-}
+function processInlineMath(text) { return text }
 
 const formattedExplanation = computed(() => {
   if (!explanation.value) return []
@@ -151,21 +161,8 @@ const formattedExplanation = computed(() => {
   const paragraphs = explanation.value.split(/\n\s*\n/).filter(p => p.trim())
   for (const paragraph of paragraphs) {
     const normalized = paragraph.trim()
-    const lines = normalized.split(/\r\n|\n|\r|\u2028|\u2029/)
-    const listItems = []
-    for (const line of lines) {
-      const m = line.match(/^\s*(?:[\*\-–—－−•·・▪◦●○])\s*(.+)$/u)
-      if (m) listItems.push(m[1])
-    }
-    if (listItems.length >= 2 && listItems.length === lines.filter(l => l.trim()).length) {
-      if (currentStep) {
-        currentStep.contents.push({ type: 'list', items: listItems })
-      } else {
-        sections.push({ type: 'list', items: listItems })
-      }
-      continue
-    }
 
+    // 1) Step header first (strip optional bold wrappers)
     const stepMatch = normalized.match(/^\s*(?:\*\*|__)?\s*(步驟[零一二三四五六七八九十\d]+：.*?)\s*(?:\*\*|＊＊|__)?\s*$/)
     if (stepMatch) {
       if (currentStep) sections.push(currentStep)
@@ -173,6 +170,7 @@ const formattedExplanation = computed(() => {
       continue
     }
 
+    // 2) Standalone bold heading as a step section title
     const boldOnlyHeading = normalized.match(/^\s*(\*\*|__)([\s\S]+?)\1\s*$/)
     if (boldOnlyHeading) {
       if (currentStep) sections.push(currentStep)
@@ -180,12 +178,51 @@ const formattedExplanation = computed(() => {
       continue
     }
 
-    const processedText = processInlineMath(paragraph)
-    if (currentStep) {
-      currentStep.contents.push({ type: 'text', text: processedText })
-    } else {
-      sections.push({ type: 'text', text: processedText })
+    // 3) Mixed-content segmentation: split lines, collect bullets and plain lines separately
+    const lines = normalized.split(/\r\n|\n|\r|\u2028|\u2029/)
+    const bulletRe = /^\s*(?:[\*\-–—－−•·・▪◦●○])\s*(.+)$/u
+
+    let listItems = []
+    let textBuffer = []
+
+    const flushText = () => {
+      const text = textBuffer.map(l => l.trim()).filter(Boolean).join('\n')
+      if (text) {
+        const processedText = processInlineMath(text)
+        if (currentStep) currentStep.contents.push({ type: 'text', text: processedText })
+        else sections.push({ type: 'text', text: processedText })
+      }
+      textBuffer = []
     }
+
+    const flushList = () => {
+      if (listItems.length > 0) {
+        if (currentStep) currentStep.contents.push({ type: 'list', items: listItems.slice() })
+        else sections.push({ type: 'list', items: listItems.slice() })
+      }
+      listItems = []
+    }
+
+    for (const line of lines) {
+      const m = line.match(bulletRe)
+      if (m) {
+        // entering or continuing a list
+        if (textBuffer.length) flushText()
+        listItems.push(m[1].trim())
+      } else {
+        // continuation line: attach to previous bullet if exists; otherwise collect as plain text
+        const t = line.trim()
+        if (!t) continue
+        if (listItems.length) {
+          listItems[listItems.length - 1] = listItems[listItems.length - 1] + '\n' + t
+        } else {
+          textBuffer.push(line)
+        }
+      }
+    }
+    // flush remainders
+    if (listItems.length) flushList()
+    if (textBuffer.length) flushText()
   }
   if (currentStep) sections.push(currentStep)
   return sections
