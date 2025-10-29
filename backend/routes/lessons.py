@@ -379,7 +379,7 @@ def submit_answer():
         )
 
         # Update session
-        db.sessions.update_one(
+        db.lesson_sessions.update_one(
             {'session_id': session_id},
             {
                 '$push': {
@@ -509,14 +509,18 @@ def get_explanation():
             if not explanation:
                 raise ValueError("LLM returned empty explanation")
             
-            # Cache the result
-            db.explanation_cache.insert_one({
-                'key': cache_key,
-                'explanation': explanation,
-                'created_at': datetime.now(),
-                'question_id': data['question_id'],
-                'selected_indices': data['selected_indices']
-            })
+            # Cache the result (idempotent)
+            db.explanation_cache.update_one(
+                {'key': cache_key},
+                {'$set': {
+                    'key': cache_key,
+                    'explanation': explanation,
+                    'created_at': datetime.now(),
+                    'question_id': data['question_id'],
+                    'selected_indices': data['selected_indices']
+                }},
+                upsert=True
+            )
         except Exception as e:
             logger.error(f"Error generating explanation: {str(e)}", exc_info=True)
             return jsonify({

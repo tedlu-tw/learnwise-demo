@@ -33,8 +33,14 @@ def create_indexes():
     # Learning session indexes
     db.lesson_sessions.create_index({"session_id": 1}, unique=True)  # Unique session lookup
     db.lesson_sessions.create_index({"user_id": 1, "created_at": -1})  # User's session history
-    db.lesson_sessions.create_index([("user_id", 1), ("selected_skills", 1)])  # Skill-based session lookup
+    # Use selected_categories to match code in routes/lessons.py
+    db.lesson_sessions.create_index([("user_id", 1), ("selected_categories", 1)])  # Category-based session lookup
     db.lesson_sessions.create_index([("user_id", 1), ("completed", 1)])  # Active/completed sessions
+
+    # Explanation cache indexes
+    db.explanation_cache.create_index({"key": 1}, unique=True)  # Fast cache lookups
+    # Auto-expire cache entries after ~30 days (2592000 seconds)
+    db.explanation_cache.create_index("created_at", expireAfterSeconds=2592000)
     
     # Session reports/analytics indexes
     db.lesson_reports.create_index({"user_id": 1, "timestamp": -1})  # User's learning history
