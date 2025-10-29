@@ -121,7 +121,8 @@ const formattedExplanation = computed(() => {
   const paragraphs = explanation.value.split(/\n\s*\n/).filter(p => p.trim())
   
   for (const paragraph of paragraphs) {
-    const normalized = paragraph.trim().replace(/^\*\*(.+)\*\*$/, '$1')
+    // Preserve bold markers; do not strip **...**
+    const normalized = paragraph.trim()
 
     // If paragraph contains multiple lines starting with bullets, convert to list content
     const lines = normalized.split(/\r\n|\n|\r|\u2028|\u2029/)
@@ -140,17 +141,25 @@ const formattedExplanation = computed(() => {
       continue
     }
 
-    // Check if this is a step header (allow Chinese numerals or digits)
-    const stepMatch = normalized.match(/^步驟[零一二三四五六七八九十\d]+：(.*)$/)
-    
+    // Step header (allow optional bold wrappers; strip wrappers for title)
+    const stepMatch = normalized.match(/^\s*(?:\*\*|__)?\s*(步驟[零一二三四五六七八九十\d]+：.*?)\s*(?:\*\*|＊＊|__)?\s*$/)
     if (stepMatch) {
-      // Start new step section
-      if (currentStep) {
-        sections.push(currentStep)
-      }
+      if (currentStep) sections.push(currentStep)
       currentStep = {
         type: 'step',
-        title: normalized, // already stripped of ** if present
+        title: stepMatch[1], // remove bold markers; h3 already bold
+        contents: []
+      }
+      continue
+    }
+
+    // Standalone bold heading (e.g., **結論** / **重要觀念** / __總結__)
+    const boldOnlyHeading = normalized.match(/^\s*(\*\*|__)([\s\S]+?)\1\s*$/)
+    if (boldOnlyHeading) {
+      if (currentStep) sections.push(currentStep)
+      currentStep = {
+        type: 'step',
+        title: boldOnlyHeading[2].trim(), // strip **/__ wrappers
         contents: []
       }
       continue
