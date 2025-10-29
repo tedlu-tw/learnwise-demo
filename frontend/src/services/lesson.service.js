@@ -23,14 +23,8 @@ class LessonService {
         throw new Error('Invalid response: missing session_id')
       }
 
-      // Immediately fetch first question
-      const firstQuestion = await this.getNextQuestion(res.data.session_id)
-      console.log('First question:', firstQuestion)
-
-      return {
-        ...res.data,
-        question: firstQuestion.question
-      }
+      // Do not fetch the first question here; caller will fetch explicitly
+      return res.data
       
     } catch (error) {
       console.error('Error starting lesson:', error.response?.data || error)
@@ -44,17 +38,22 @@ class LessonService {
       console.log('Next question response:', res.data)
 
       // Handle session completion
-      if (res.data.message === 'Session complete') {
+      if (res.data.completed || res.data.message === 'Session complete') {
         return { completed: true }
       }
 
-      if (!res.data.question || !res.data.question.text || !res.data.question.options) {
-        console.error('Invalid question data:', res.data)
-        throw new Error('Invalid question data received from server')
+      if (!res.data.question) {
+        return { completed: true }
       }
 
       // Normalize the question ID and ensure it's a string
       const question = res.data.question
+
+      // Normalize text field for legacy records
+      if (!question.text && question.question_text) {
+        question.text = question.question_text
+      }
+
       question.id = String(question._id || question.id || '')
       console.log('Normalized question ID:', question.id)
 
@@ -129,11 +128,11 @@ class LessonService {
     try {
       const res = await api.get('/lessons/progress-summary')
       return {
-        ...res.data,
-        retentionRate: res.data.retention_rate,
-        totalCards: res.data.total_cards,
-        cardsByState: res.data.states || {},
-        streak: res.data.current_streak || 0
+        total_questions: res.data.total_questions || 0,
+        accuracy_rate: res.data.accuracy_rate || 0,
+        mastery_rate: res.data.mastery_rate || 0,
+        skills_progress: res.data.skills_progress || {},
+        learning_stats: res.data.learning_stats || { learning: 0, review: 0, relearning: 0 }
       }
     } catch (error) {
       console.error('Error getting progress summary:', error.response?.data || error)

@@ -44,11 +44,11 @@ export const useLessonStore = defineStore('lesson', {
         this.resetState()
         
         console.log('Starting lesson:', { lessonType, skillIds })
-        this.currentSession = await lessonService.startLesson({ 
+        const sessionInfo = await lessonService.startLesson({ 
           type: lessonType, 
           skill_ids: skillIds 
         })
-        
+        this.currentSession = sessionInfo
         console.log('Session started:', this.currentSession)
         return this.currentSession
       } catch (error) {
@@ -72,8 +72,16 @@ export const useLessonStore = defineStore('lesson', {
         console.log('Fetching next question for session:', this.currentSession.session_id)
         const response = await lessonService.getNextQuestion(this.currentSession.session_id)
         
+        // Handle session complete signal from server
+        if (response?.completed) {
+          this.currentQuestion = null
+          return null
+        }
+        
         if (!response.question) {
-          throw new Error('No question returned from server')
+          // Gracefully treat as completed if backend didn't include a question
+          this.currentQuestion = null
+          return null
         }
         
         this.setCurrentQuestion(response.question)

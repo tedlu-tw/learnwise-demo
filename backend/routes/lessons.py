@@ -146,7 +146,7 @@ def next_question():
     # Check if we've used all available questions
     if not available_questions:
         logger.info("No more available questions - session complete")
-        return jsonify({'message': 'Session complete'}), 200
+        return jsonify({'completed': True, 'message': 'Session complete'}), 200
     
     # Get next question from available questions
     if available_questions:
@@ -183,15 +183,22 @@ def next_question():
             return jsonify({'error': 'Question not found'}), 404
     else:
         logger.info("No more available questions")
-        return jsonify({'message': 'Session complete'}), 200
+        return jsonify({'completed': True, 'message': 'Session complete'}), 200
 
 @lessons_bp.route('/due-count', methods=['GET'])
 @jwt_required()
 def get_due_count():
     user_id = get_jwt_identity()
     try:
-        due_cards = FSRSHelper.get_due_cards(user_id, limit=100)
-        return jsonify({'due_count': len(due_cards), 'review_count': len(due_cards)})
+        db = get_db()
+        # Count all due cards accurately (no arbitrary limit)
+        now = datetime.utcnow()
+        due_filter = {
+            'user_id': ObjectId(user_id),
+            'due_date': { '$lte': now }
+        }
+        due_count = db.fsrs_cards.count_documents(due_filter)
+        return jsonify({'due_count': due_count, 'review_count': due_count})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -209,27 +216,11 @@ def get_progress_summary():
         if not user:
             return jsonify({'error': 'User not found'}), 404
             
-        # Get selected skills (case-insensitive)
+        # Case-insensitive selection from user
         selected_skills = [s.lower() for s in user.get('selected_skills', [])]
         
-        # Initialize the response structure
-        skills_progress = {}
-        total_questions = 0
-        total_correct = 0
-        total_answered = 0
-        
-        # Get total questions per skill
-        pipeline = [
-            {'$match': {'category': {'$in': selected_skills}}},
-            {'$group': {
-                '_id': '$category',
-                'total': {'$sum': 1}
-            }}
-        ]
-        skill_totals = {doc['_id']: doc['total'] for doc in db.questions.aggregate(pipeline)}
-        
-        # Get completed questions per skill with more reliable counting
-        pipeline = [
+        # Aggregate answers across all categories first (robust baseline)
+        base_pipeline = [
             {'$match': {'user_id': ObjectId(user_id)}},
             {'$lookup': {
                 'from': 'questions',
@@ -240,43 +231,68 @@ def get_progress_summary():
             {'$unwind': '$question'},
             {'$group': {
                 '_id': '$question.category',
-                'answered': {'$sum': 1},
-                'total_correct': {'$sum': {'$cond': {'if': {'$eq': ['$is_correct', True]}, 'then': 1, 'else': 0}}},
-                'questions': {'$addToSet': '$question_id'}  # Track unique questions
+                'answered_set': {'$addToSet': '$question_id'},
+                'correct_ids': {'$addToSet': {'$cond': [{'$eq': ['$is_correct', True]}, '$question_id', None]}}
             }},
             {'$project': {
                 '_id': 1,
-                'answered': {'$size': '$questions'},  # Count unique questions only
-                'total_correct': 1
+                'answered': {'$size': '$answered_set'},
+                'total_correct': {'$size': {'$setDifference': ['$correct_ids', [None]]}}
             }}
         ]
-        skill_progress = db.lesson_reports.aggregate(pipeline)
-        
-        # Calculate overall stats and build response
-        for skill in selected_skills:
-            skill_stats = next((s for s in skill_progress if s['_id'].lower() == skill.lower()), {'answered': 0, 'total_correct': 0})
-            total_for_skill = skill_totals.get(skill, 0)
-            
-            skills_progress[skill] = {
-                'answered': skill_stats['answered'],
-                'total': total_for_skill,
-                'correct': skill_stats['total_correct']
-            }
-            
-            total_questions += total_for_skill
-            total_correct += skill_stats['total_correct']
-            total_answered += skill_stats['answered']
-            
-        # Calculate mastery rate (weighted by skill progress)
+        all_progress_list = list(db.lesson_reports.aggregate(base_pipeline))
+        progress_by_cat_all = {s['_id'].lower(): s for s in all_progress_list}
+
+        # Totals per category (all)
+        totals_all = {doc['_id'].lower(): doc['total'] for doc in db.questions.aggregate([
+            {'$group': {'_id': '$category', 'total': {'$sum': 1}}}
+        ])}
+
+        # If user has selected skills, try to filter by them; otherwise use all
+        use_selected = bool(selected_skills)
+        skills_progress = {}
+        total_questions = 0
+        total_correct = 0
+        total_answered = 0
+
+        def build_from_categories(categories_map):
+            nonlocal total_questions, total_correct, total_answered, skills_progress
+            skills_progress = {}
+            total_questions = 0
+            total_correct = 0
+            total_answered = 0
+            for cat_key, prog in categories_map.items():
+                total_for_cat = totals_all.get(cat_key, 0)
+                skills_progress[cat_key] = {
+                    'answered': prog.get('answered', 0),
+                    'total': total_for_cat,
+                    'correct': prog.get('total_correct', 0)
+                }
+                total_questions += total_for_cat
+                total_correct += prog.get('total_correct', 0)
+                total_answered += prog.get('answered', 0)
+
+        if use_selected:
+            # Build a filtered map with only selected skills
+            filtered = {k: v for k, v in progress_by_cat_all.items() if k in selected_skills}
+            if filtered:
+                build_from_categories(filtered)
+            else:
+                # Fallback to all categories answered by the user
+                build_from_categories(progress_by_cat_all)
+        else:
+            build_from_categories(progress_by_cat_all)
+
+        # Mastery rate weighted by total questions per category considered
         mastery_rate = 0
-        if total_questions > 0:
-            mastery_weights = {skill: total/total_questions for skill, total in skill_totals.items()}
+        if total_questions > 0 and skills_progress:
+            mastery_weights = {skill: data['total']/total_questions for skill, data in skills_progress.items() if data['total'] > 0}
             for skill, progress in skills_progress.items():
                 if progress['total'] > 0:
                     skill_mastery = (progress['correct'] / progress['total']) * 100
                     mastery_rate += skill_mastery * mastery_weights.get(skill, 0)
         
-        # Get FSRS stats
+        # FSRS stats
         fsrs_stats = db.fsrs_cards.aggregate([
             {'$match': {'user_id': ObjectId(user_id)}},
             {'$group': {
@@ -291,11 +307,6 @@ def get_progress_summary():
         return jsonify({
             'total_questions': total_answered,
             'accuracy_rate': round((total_correct / total_answered * 100), 2) if total_answered > 0 else 0,
-            'debug_stats': {
-                'total_correct': total_correct,
-                'total_answered': total_answered,
-                'skills_count': len(selected_skills)
-            },
             'mastery_rate': round(mastery_rate, 2),
             'skills_progress': skills_progress,
             'learning_stats': {
@@ -399,6 +410,20 @@ def submit_answer():
             }
         )
 
+        # Record attempt in lesson_reports for analytics (ensure types match aggregation)
+        try:
+            db.lesson_reports.insert_one({
+                'user_id': ObjectId(user_id),
+                'session_id': session_id,
+                'question_id': ObjectId(question_id),
+                'is_correct': is_correct,
+                'selected_indices': answer_indices,
+                'response_time': response_time,
+                'timestamp': datetime.now(timezone.utc)
+            })
+        except Exception as e:
+            logger.warning(f"Failed to write lesson report: {e}")
+
         # Initialize user stats if they don't exist
         db.users.update_one(
             {'_id': ObjectId(user_id), 'stats': {'$exists': False}},
@@ -454,9 +479,7 @@ def submit_answer():
                 'correct': is_correct,  # Add correct flag to feedback object
                 'correct_indices': correct_indices  # Rename from correct_answer to match frontend
             },
-            'selected_indices': answer_indices,  # Rename from selected_answer to match frontend
-            'streak': streak + 1 if is_correct else 0,
-            'explanation': question.get('explanation', '')  # Include question explanation if available
+            'selected_indices': answer_indices  # Rename from selected_answer to match frontend
         })
 
     except Exception as e:

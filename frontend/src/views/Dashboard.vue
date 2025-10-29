@@ -46,6 +46,9 @@
                             <div class="text-sm text-gray-600">
                                 掌握度 {{ stats.mastery_rate }}%
                             </div>
+                            <div class="mt-2 text-xs text-gray-500">
+                                (學習: {{ stats.learning_stats.learning }}｜複習: {{ stats.learning_stats.review }}｜再學習: {{ stats.learning_stats.relearning }})
+                            </div>
                         </div>
                     </div>
 
@@ -123,7 +126,8 @@ const stats = ref({
     accuracy_rate: 0,
     due_count: 0,
     mastery_rate: 0,
-    skills_progress: {}
+    skills_progress: {},
+    learning_stats: { learning: 0, review: 0, relearning: 0 }
 })
 
 const skillNames = {
@@ -184,7 +188,8 @@ const loadDashboardData = async () => {
             accuracy_rate: progressData.accuracy_rate || 0,
             due_count: dueData.due_count || 0,
             mastery_rate: progressData.mastery_rate || 0,
-            skills_progress: progressData.skills_progress || {}
+            skills_progress: progressData.skills_progress || {},
+            learning_stats: progressData.learning_stats || { learning: 0, review: 0, relearning: 0 }
         }
     } catch (error) {
         console.error('Error loading dashboard data:', error)

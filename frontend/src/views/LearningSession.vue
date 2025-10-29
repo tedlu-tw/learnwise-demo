@@ -77,8 +77,8 @@ onMounted(async () => {
             }
             
             await lesson.startLesson('initial', auth.user.selected_skills)
-            const nextQuestion = await lesson.fetchNextQuestion()
-            question.value = nextQuestion
+            const fetched = await lesson.fetchNextQuestion()
+            question.value = fetched
             currentQuestion.value = 1
             console.log('Initial question loaded:', question.value)
         } else {
@@ -141,12 +141,12 @@ async function nextQuestion() {
     }
     
     try {
-        const nextQuestion = await lesson.fetchNextQuestion()
-        if (nextQuestion) {
-            question.value = nextQuestion
+        const nextQ = await lesson.fetchNextQuestion()
+        if (nextQ) {
+            question.value = nextQ
             currentQuestion.value++
         } else {
-            // No more questions, finish the lesson
+            // Session completed
             router.push('/dashboard')
         }
     } catch (err) {
