@@ -26,7 +26,7 @@ class LLMHelper:
             # Call Replicate API
             output = ""
             for event in replicate.stream(
-                "meta/meta-llama-3-70b-instruct",
+                "openai/gpt-4o-mini",
                 input={
                     "top_k": 0,
                     "top_p": 0.9,
@@ -61,7 +61,7 @@ class LLMHelper:
    - 方程組：$\\begin{cases} x+y=1 \\\\ x-y=2 \\end{cases}$（仍置於單一行內 $ 中）。
 
 5. 文字強調：
-   - 關鍵字可使用 **粗體** 強調（請勿使用其他 HTML 標籤）。
+   - 在標題以外的內容切勿使用任何粗體文字（禁止於標題外出現 `**` 符號）。
 
 6. 禁止事項：
    - 禁止使用雙 $$、\\[...\\]、HTML 標籤、或任何顯示模式的數學環境（align/aligned/equation/gather/multline/split）。
